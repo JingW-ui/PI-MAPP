@@ -185,9 +185,13 @@ model = YOLO('yolo12x.pt')  # 🌟 你可以选择 n/m/l/x 版本
 - `yolo12m.pt` → [下载链接](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo12m.pt) 🔗
 - `yolo12l.pt` → [下载链接](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo12l.pt) 🔗
 - `yolo12x.pt` → [下载链接](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo12x.pt) 🔗
-
 ---
-## 自定义权重介绍及获取方式
+###  权重和数据获取技巧
+kaggle: https://www.kaggle.com
+该网页中有非常多的公开数据集，可以说没有你找不到的 只有你想不到的。
+找到数据集后，可以在网页中下载数据集在本地训练（可直接在kaggle中训练），也可找到数据集相关的code,查看其output 运气好可直接下载对应数据集的权重
+---
+## 我目前所整理的权重介绍及获取方式 
 
 ### 垃圾检测 (Garbage Detection)
 - **权重名**：`garbage_detection.pt` (垃圾检测权重)
@@ -277,10 +281,8 @@ model = YOLO('yolo12x.pt')  # 🌟 你可以选择 n/m/l/x 版本
   - 7: awning-tricycle (带遮阳篷的三轮车)
   - 8: bus (公共汽车)
   - 9: motor (摩托车)
-
 ### 日常交通工具检测（监控视角）
-#### 类别对照表（ID → 中文名称）
-
+类别对照表（ID → 中文名称）
 | ID | 英文名称 | 中文名称 |
 |----|--------|--------|
 | 0 | articulated_truck | 铰接式卡车 |
@@ -296,9 +298,8 @@ model = YOLO('yolo12x.pt')  # 🌟 你可以选择 n/m/l/x 版本
 | 10 | work_van | 厢式工作车/作业面包车 |
 
 ---
-
 ### 战舰检测（仅供学习研究）
-#### 类别对照表（ID → 中文名称）
+类别对照表（ID → 中文名称）
 
 | ID | 英文名称 | 中文名称 |
 |----|--------|--------|
@@ -352,7 +353,115 @@ model = YOLO('yolo12x.pt')  # 🌟 你可以选择 n/m/l/x 版本
 | 47 | YuDeng LL | 玉登级登陆舰 |
 | 48 | YuTing LL | 玉亭级登陆舰 |
 | 49 | YuZhao LL | 玉昭级登陆舰 |
+### 足球运动员检测
 
+| 类别编号 | 英文原名 | 中文翻译 |
+|---------|----------|----------|
+| 0       | football | 足球     |
+| 1       | player   | 运动员   |
+
+### 粉刺检测
+
+| 类别编号 | 英文原名 | 中文翻译 |
+|---------|----------|----------|
+| 0       | Acne     | 粉刺     |
+
+### 国际象棋检测
+
+| 类别编号 | 英文原名      | 中文翻译 |
+|---------|---------------|----------|
+| 0       | bishop        | 象       |
+| 1       | black-bishop  | 黑象     |
+| 2       | black-king    | 黑王     |
+| 3       | black-knight  | 黑马     |
+| 4       | black-pawn    | 黑兵     |
+| 5       | black-queen   | 黑后     |
+| 6       | black-rook    | 黑车     |
+| 7       | white-bishop  | 白象     |
+| 8       | white-king    | 白王     |
+| 9       | white-knight  | 白马     |
+| 10      | white-pawn    | 白兵     |
+| 11      | white-queen   | 白后     |
+| 12      | white-rook    | 白车     |
+
+### 牙科检测
+
+| 类别编号 | 英文原名          | 中文翻译     |
+|---------|-------------------|--------------|
+| 0       | 1st Molar         | 第一磨牙     |
+| 1       | 1st Premolar      | 第一前磨牙   |
+| 2       | 2nd Molar         | 第二磨牙     |
+| 3       | 2nd Premolar      | 第二前磨牙   |
+| 4       | Canine            | 尖牙（犬齿） |
+| 5       | Central Incisor   | 中切牙       |
+| 6       | Lateral Incisor   | 侧切牙       |
+
+### 交通信号灯（节选）
+
+| 类别编号 | 英文原名                                                                                      | 中文翻译                     |
+|---------|-----------------------------------------------------------------------------------------------|------------------------------|
+| 104     | 50 meters between vehicles                                                                    | 保持50米车距                 |
+| 147     | Advance direction sign exit ahead from other road than motorway or expressway                 | 前方出口预告（非高速）       |
+| 148     | Axle weight limit-2ton                                                                        | 轴重限制2吨                  |
+| 149     | Bus stop                                                                                      | 公交停靠站                   |
+| 150     | Cattle                                                                                        | 牲畜出没                     |
+| 151     | Crossroad intersection                                                                        | 交叉口                       |
+| 152     | Crossroads                                                                                    | 十字交叉路口                 |
+| 153     | Cycle track                                                                                   | 自行车道                     |
+| 154     | Cyclist and mopeds rides on carriageway                                                       | 自行车/助力车混行            |
+| 155     | Cyclists                                                                                      | 注意自行车                   |
+| 156     | Dangerous shoulder                                                                            | 路肩危险                     |
+| 157     | Dip                                                                                           | 路面凹陷                     |
+| 158     | Direction sign exit sign                                                                      | 出口方向标志                 |
+| 159     | Direction to be followed                                                                      | 强制通行方向                 |
+| 160     | End of all restrictions                                                                       | 解除全部限制                 |
+| 161     | End of lane reserved for public transport                                                     | 公交专用道结束               |
+| 162     | Falling rocks                                                                                 | 落石                         |
+| 163     | Filling station                                                                               | 加油站                       |
+| 261     | tunnel in 2 km                                                                                | 2 km 处有隧道                |
+| 262     | two way traffic                                                                               | 双向交通                     |
+| 263     | warning wild animal                                                                           | 注意野生动物                 |
+
+### 水果检测
+
+| 类别编号 | 英文原名   | 中文翻译 |
+|---------|------------|----------|
+| 0       | Apple      | 苹果     |
+| 1       | Banana     | 香蕉     |
+| 2       | Grape      | 葡萄     |
+| 3       | Orange     | 橙子     |
+| 4       | Pineapple  | 菠萝     |
+| 5       | Watermelon | 西瓜     |
+
+### 眼球检测
+
+| 类别编号 | 标签 | 中文翻译 |
+|---------|----|----------|
+| 0       | 0  | 眼球     |
+
+### 脑部肿瘤检测
+
+| 类别编号 | 英文原名   | 中文翻译 |
+|---------|------------|----------|
+| 0       | glioma     | 胶质瘤   |
+| 1       | meningioma | 脑膜瘤   |
+| 2       | pituitary  | 垂体瘤   |
+
+### 凹坑检测
+
+| 类别编号 | 英文原名 | 中文翻译   |
+|---------|----------|------------|
+| 0       | Potholes | 路面凹坑   |
+
+### 立方体检测
+
+| 类别编号 | 英文原名              | 中文翻译         |
+|---------|-----------------------|------------------|
+| 0       | big green cube        | 大绿色立方体     |
+| 1       | brown hole            | 棕色孔洞         |
+| 2       | small red cylinder    | 小红色圆柱体     |
+| 3       | yellow cube           | 黄色立方体       |
+```
 
 #### 🎉 **权重获取方式** 📧
 联系邮箱：2642144249@qq.com
@@ -382,7 +491,7 @@ python enhanced_ui_main.py
 python enhanced_detection_main.py  # 基础版本
 ```
 
-### 3. 基本使用流程
+## 基本使用流程
 1. **选择模型**: 在"模型配置"中选择要使用的YOLO模型
 2. **设置置信度**: 调整置信度阈值（默认0.25）
 3. **选择检测源**: 
@@ -548,6 +657,8 @@ class ModelManager:
 - **虚拟环境**: 使用独立的Python环境避免依赖冲突
 - **定期清理**: 定期清理临时文件和日志文件
 - **系统监控**: 监控CPU、内存、GPU使用情况
+- **项目打包**: pyinstaller -F -w   --name YOLO_DETECTOR enhanced_ui_main.py
+
 
 ## 🤝 贡献指南
 
@@ -620,8 +731,40 @@ class ModelManager:
 * 战舰检测（仅可用作学习研究）
 * 类别信息： {0: 'AOE', 1: 'Arleigh Burke DD', 2: 'Asagiri DD', 3: 'Atago DD', 4: 'Austin LL', 5: 'Barge', 6: 'Cargo', 7: 'Commander', 8: 'Container Ship', 9: 'Dock', 10: 'EPF', 11: 'Enterprise', 12: 'Ferry', 13: 'Fishing Vessel', 14: 'Hatsuyuki DD', 15: 'Hovercraft', 16: 'Hyuga DD', 17: 'LHA LL', 18: 'LSD 41 LL', 19: 'Masyuu AS', 20: 'Medical Ship', 21: 'Midway', 22: 'Motorboat', 23: 'Nimitz', 24: 'Oil Tanker', 25: 'Osumi LL', 26: 'Other Aircraft Carrier', 27: 'Other Auxiliary Ship', 28: 'Other Destroyer', 29: 'Other Frigate', 30: 'Other Landing', 31: 'Other Merchant', 32: 'Other Ship', 33: 'Other Warship', 34: 'Patrol', 35: 'Perry FF', 36: 'RoRo', 37: 'Sailboat', 38: 'Sanantonio AS', 39: 'Submarine', 40: 'Test Ship', 41: 'Ticonderoga', 42: 'Training Ship', 43: 'Tugboat', 44: 'Wasp LL', 45: 'Yacht', 46: 'YuDao LL', 47: 'YuDeng LL', 48: 'YuTing LL', 49: 'YuZhao LL'}
 ![战舰检测.png](ui_predict_results/%E6%88%98%E8%88%B0%E6%A3%80%E6%B5%8B.png)
+---
+* 足球运动员检测
+* 类别信息： {0: 'football', 1: 'player'}
+![足球运动员检测.png](ui_predict_results/%E8%B6%B3%E7%90%83%E8%BF%90%E5%8A%A8%E5%91%98%E6%A3%80%E6%B5%8B.png)
+* 粉刺检测
+* 类别信息： {0: 'Acne'}
+![粉刺检测.png](ui_predict_results/%E7%B2%89%E5%88%BA%E6%A3%80%E6%B5%8B.png)
+* 国际象棋检测
+* 类别信息： {0: 'bishop', 1: 'black-bishop', 2: 'black-king', 3: 'black-knight', 4: 'black-pawn', 5: 'black-queen', 6: 'black-rook', 7: 'white-bishop', 8: 'white-king', 9: 'white-knight', 10: 'white-pawn', 11: 'white-queen', 12: 'white-rook'}
+![国际象棋检测.png](ui_predict_results/%E5%9B%BD%E9%99%85%E8%B1%A1%E6%A3%8B%E6%A3%80%E6%B5%8B.png)
+* 牙科检测
+* 类别信息： {0: '1st Molar', 1: '1st Premolar', 2: '2nd Molar', 3: '2nd Premolar', 4: 'Canine', 5: 'Central Incisor', 6: 'Lateral Incisor'}
+![牙科检测.png](ui_predict_results/%E7%89%99%E7%A7%91%E6%A3%80%E6%B5%8B.png)
+* 交通信号灯
+* 类别信息： {0: '0', 1: '1', 2: '100', 3: '101', 4: '102', 5: '103', 6: '105', 7: '106', 8: '107', 9: '108', 10: '109', 11: '110', 12: '111', 13: '112', 14: '113', 15: '115', 16: '116', 17: '117', 18: '12', 19: '120', 20: '121', 21: '122', 22: '123', 23: '124', 24: '125', 25: '127', 26: '128', 27: '129', 28: '131', 29: '132', 30: '133', 31: '136', 32: '137', 33: '138', 34: '139', 35: '140', 36: '141', 37: '142', 38: '143', 39: '144', 40: '145', 41: '146', 42: '147', 43: '148', 44: '149', 45: '15', 46: '150', 47: '153', 48: '154', 49: '155', 50: '156', 51: '158', 52: '159', 53: '16', 54: '161', 55: '163', 56: '164', 57: '166', 58: '167', 59: '168', 60: '169', 61: '17', 62: '170', 63: '171', 64: '172', 65: '173', 66: '174', 67: '175', 68: '177', 69: '178', 70: '179', 71: '18', 72: '180', 73: '181', 74: '19', 75: '2', 76: '20', 77: '21', 78: '22', 79: '23', 80: '24', 81: '27', 82: '28', 83: '29', 84: '3', 85: '31', 86: '32', 87: '33', 88: '34', 89: '35', 90: '36', 91: '39', 92: '4', 93: '40', 94: '41', 95: '42', 96: '43', 97: '45', 98: '46', 99: '47', 100: '48', 101: '49', 102: '5', 103: '50', 104: '50 meters between vehicles', 105: '51', 106: '52', 107: '53', 108: '54', 109: '55', 110: '56', 111: '57', 112: '59', 113: '60', 114: '62', 115: '63', 116: '64', 117: '65', 118: '66', 119: '67', 120: '68', 121: '69', 122: '70', 123: '71', 124: '73', 125: '74', 126: '76', 127: '78', 128: '79', 129: '8', 130: '81', 131: '82', 132: '83', 133: '84', 134: '85', 135: '86', 136: '87', 137: '88', 138: '89', 139: '90', 140: '91', 141: '93', 142: '94', 143: '95', 144: '97', 145: '98', 146: '99', 147: 'Advance direction sign exit ahead from other road than motorway or expressway', 148: 'Axle weight limit-2ton', 149: 'Bus stop', 150: 'Cattle', 151: 'Crossroad intersection', 152: 'Crossroads', 153: 'Cycle track', 154: 'Cyclist and mopeds rides on carrigeway', 155: 'Cyclists', 156: 'Dangerous shoulder', 157: 'Dip', 158: 'Direction sign exit sign', 159: 'Direction to be followed', 160: 'End of all restrictions', 161: 'End of lane reserved for public transport', 162: 'Falling rocks', 163: 'Filling station', 164: 'First aid post', 165: 'Give way (Yield)', 166: 'Give way -Yield-', 167: 'Guarded level crossing ahead', 168: 'Height limit-3.5m', 169: 'Horn prohibited', 170: 'Hotel', 171: 'Keep left', 172: 'Left curve', 173: 'Level crossing countdown marker', 174: 'Loose gravel', 175: 'Main highways', 176: 'Marking for sharp bends', 177: 'Motorway', 178: 'Narrow bridge', 179: 'Narrow road', 180: 'National border', 181: 'No Left turn', 182: 'No Right turn', 183: 'No entry', 184: 'No entry for Trucks', 185: 'No entry for bicycles', 186: 'No entry for bullock carts', 187: 'No entry for hand carts', 188: 'No entry for motor vehicles', 189: 'No entry for pedestrians', 190: 'No parking', 191: 'No passing', 192: 'No snowmobiles', 193: 'No stopping', 194: 'No vehicles exceeding 12 tonnes', 195: 'No vehicles exceeding length shown', 196: 'No vehicles in both directions', 197: 'No vehicles or combination of vehicles exceeding weight shown', 198: 'Oblique side road junction', 199: 'One-way traffic', 200: 'Parking', 201: 'Parking allowed for 15min', 202: 'Passing without stopping prohibited', 203: 'Pedestrian crossing', 204: 'Priority over oncoming vehicles', 205: 'Refreshments', 206: 'Restaurant', 207: 'Restriction zone', 208: 'Right curve', 209: 'Road hump', 210: 'Road number sign', 211: 'Roadworks', 212: 'Roundabout', 213: 'School', 214: 'Side road junction', 215: 'Slippery road', 216: 'Speed refulcation bump', 217: 'Staggered side road junction', 218: 'Steep ascent', 219: 'Steep descent', 220: 'Steep downhill', 221: 'Steep uphill', 222: 'Stop', 223: 'Stop at customs', 224: 'Straight ahead', 225: 'Symbol plate for specified vehicle or road user category', 226: 'T-junction', 227: 'Telephone', 228: 'Traffic signals', 229: 'Turn Right', 230: 'Turn left', 231: 'Turn left ahead', 232: 'Turn left or straight ahead', 233: 'Turn right ahead', 234: 'Uneven road', 235: 'Unguarded level crossing ahead', 236: 'Unprotected quay', 237: 'Weight limit-5ton', 238: 'Y-junction', 239: 'adjoining way', 240: 'axle weight limit 30tonnes', 241: 'end of the speed limit', 242: 'exit', 243: 'falling rocks (from) left', 244: 'falling rocks -from- left', 245: 'length limit-10m', 246: 'lowspeed zone', 247: 'no entry for bicycles and humans', 248: 'no motorcycles', 249: 'no turning left', 250: 'no u turn', 251: 'snowmobiles', 252: 'speed limit-100', 253: 'speed limit-110', 254: 'speed limit-30', 255: 'speed limit-50', 256: 'speed limit-60', 257: 'speed limit-70', 258: 'speed limit-80', 259: 'speed limit-90', 260: 'speed-limit-120', 261: 'tunnel in 2 km', 262: 'two way traffic', 263: 'warning wild animal'}
+![交通信号灯检测.png](ui_predict_results/%E4%BA%A4%E9%80%9A%E4%BF%A1%E5%8F%B7%E7%81%AF%E6%A3%80%E6%B5%8B.png)
+* 水果检测
+* 类别信息： {0: 'Apple', 1: 'Banana', 2: 'Grape', 3: 'Orange', 4: 'Pineapple', 5: 'Watermelon'}
+![水果检测（low_acc）.png](ui_predict_results/%E6%B0%B4%E6%9E%9C%E6%A3%80%E6%B5%8B%EF%BC%88low_acc%EF%BC%89.png)
+* 眼球检测
+* 类别信息： {0: '0'}
+![眼球检测.png](ui_predict_results/%E7%9C%BC%E7%90%83%E6%A3%80%E6%B5%8B.png)
+* 脑部肿瘤
+* 类别信息： {0: 'glioma', 1: 'meningioma', 2: 'pituitary'}
+![脑部肿瘤检测.png](ui_predict_results/%E8%84%91%E9%83%A8%E8%82%BF%E7%98%A4%E6%A3%80%E6%B5%8B.png)* 
+* 凹坑检测
+* 类别信息： {0: 'Potholes'}
+![路面凹坑检测.png](ui_predict_results/%E8%B7%AF%E9%9D%A2%E5%87%B9%E5%9D%91%E6%A3%80%E6%B5%8B.png)
+* 立方体检测
+* 类别信息： {0: 'big green cube', 1: 'brown hole', 2: 'small red cylinder', 3: 'yellow cube'}
+![立方体检测.png](ui_predict_results/%E7%AB%8B%E6%96%B9%E4%BD%93%E6%A3%80%E6%B5%8B.png)
 
 ---
+
 
 
 **Enhanced Object Detection System v2.0** - 让目标检测更加简单、高效、美观！

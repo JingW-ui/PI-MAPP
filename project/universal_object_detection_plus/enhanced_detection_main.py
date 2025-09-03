@@ -14,7 +14,7 @@ Enhanced Universal Object Detection System v2.0
 🎨 优化的图标设计
 ⚡ 性能优化和错误处理
 """
-
+import io
 import sys
 import os
 import cv2
@@ -24,6 +24,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 
+from PIL.Image import Image
 from PySide6.QtWidgets import *
 from PySide6.QtCore import *
 from PySide6.QtGui import *

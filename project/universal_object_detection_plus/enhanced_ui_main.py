@@ -1,28 +1,1326 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Enhanced UI Main - 主界面实现
-包含完整的增强UI界面
-"""
 
 import sys
-import os
+from ultralytics import YOLO
+
+
+
+import threading
+
 import cv2
 import time
-import json
+import numpy as np
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple
-
 from PySide6.QtWidgets import *
 from PySide6.QtCore import *
 from PySide6.QtGui import *
-import numpy as np
 
-# 导入自定义模块
-from enhanced_detection_main import StyleManager, CameraManager, ModelManager, DetectionThread, YOLO
-from enhanced_components import (BatchDetectionThread, DetectionResultWidget,
-                                 ModelSelectionDialog, MonitoringWidget)
+class BatchDetectionThread(QThread):
+    """批量检测线程"""
+    result_ready = Signal(str, object, object, float, object, list)  # 文件路径, 原图, 结果图, 耗时, 检测结果, 类别名称
+    progress_updated = Signal(int)
+    current_file_changed = Signal(str)
+    status_changed = Signal(str)
+    error_occurred = Signal(str)
+    finished = Signal()
+
+    def __init__(self, model, folder_path, confidence_threshold=0.25, supported_formats=None):
+        super().__init__()
+        self.model = model
+        self.folder_path = folder_path
+        self.confidence_threshold = confidence_threshold
+        self.supported_formats = supported_formats or ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp', '.tif']
+        self.is_running = False
+        self.processed_count = 0
+        self.error_count = 0
+
+    def run(self):
+        self.is_running = True
+
+        try:
+            # 收集所有支持的图片文件
+            image_files = []
+            for fmt in self.supported_formats:
+                image_files.extend(Path(self.folder_path).rglob(f'*{fmt}'))
+                # image_files.extend(Path(self.folder_path).rglob(f'*{fmt.upper()}'))
+
+            total_files = len(image_files)
+            if total_files == 0:
+                self.status_changed.emit("文件夹中没有找到支持的图片格式")
+                self.finished.emit()
+                return
+
+            self.status_changed.emit(f"开始批量处理 {total_files} 个文件...")
+
+            # 获取类别名称
+            class_names = list(self.model.names.values())
+
+            for i, img_path in enumerate(image_files):
+                if not self.is_running:
+                    break
+
+                self.current_file_changed.emit(str(img_path))
+
+                try:
+                    # 处理单个图片
+                    start_time = time.time()
+                    results = self.model(str(img_path), conf=self.confidence_threshold, verbose=False)
+                    end_time = time.time()
+
+                    # 获取原图
+                    original_img = cv2.imread(str(img_path))
+                    if original_img is not None:
+                        original_img = cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB)
+
+                        # 获取结果图
+                        result_img = results[0].plot()
+                        result_img = cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB)
+
+                        self.result_ready.emit(str(img_path), original_img, result_img,
+                                               end_time - start_time, results, class_names)
+                        self.processed_count += 1
+
+                except Exception as e:
+                    self.error_occurred.emit(f"处理文件 {img_path.name} 时发生错误: {str(e)}")
+                    self.error_count += 1
+
+                # 更新进度
+                progress = int(((i + 1) / total_files) * 100)
+                self.progress_updated.emit(progress)
+
+                # 状态更新
+                if (i + 1) % 10 == 0 or i == total_files - 1:
+                    self.status_changed.emit(
+                        f"处理进度: {i + 1}/{total_files} (成功: {self.processed_count}, 错误: {self.error_count})")
+
+        except Exception as e:
+            self.error_occurred.emit(f"批量处理发生错误: {str(e)}")
+        finally:
+            self.is_running = False
+            # self.finished.emit()
+
+    def stop(self):
+        """停止批量检测"""
+        self.is_running = False
+
+
+class MultiCameraMonitorThread(QThread):
+    camera_result_ready = Signal(int, object, object, float, object, list)
+    camera_error = Signal(int, str)
+    camera_status = Signal(int, str)
+    finished = Signal()
+
+    def __init__(self, model, camera_ids, conf=0.25, fps=10):
+        super().__init__()
+        self.model = model
+        self.cam_ids = camera_ids
+        self.conf = conf
+        self.period = 1.0 / fps  # 帧间隔
+        self.caps = {}  # {id: cv2.VideoCapture}
+        self.active = {}  # {id: bool} 是否在线
+        self.last_t = {}  # {id: float}
+
+        # 线程同步
+        self._run_flag = True
+        self._pause_cond = QWaitCondition()
+        self._pause_mutex = QMutex()
+        self._paused_flag = False
+
+    # ----------------- 生命周期 -----------------
+    def run(self):
+        self._open_all()
+        if not self.caps:
+            self.finished.emit()
+            return
+
+        cls_names = list(self.model.names.values())
+
+        while self._run_flag:
+            self._pause_mutex.lock()
+            if self._paused_flag:
+                self._pause_cond.wait(self._pause_mutex)
+            self._pause_mutex.unlock()
+
+            for cid in list(self.caps.keys()):
+                if not self._run_flag:
+                    break
+                if not self._grab_and_infer(cid, cls_names):
+                    self._reconnect_later(cid)  # 断线后异步重连
+            self.msleep(10)
+
+        self._close_all()
+        self.finished.emit()
+
+    def stop(self):
+        self._run_flag = False
+        self.resume()  # 确保等待线程被唤醒
+        self.wait()
+
+    def pause(self):
+        self._pause_mutex.lock()
+        self._paused_flag = True
+        self._pause_mutex.unlock()
+
+    def resume(self):
+        self._pause_mutex.lock()
+        self._paused_flag = False
+        self._pause_mutex.unlock()
+        self._pause_cond.wakeAll()
+
+    # ----------------- 私有工具 -----------------
+    def _open_all(self):
+        for cid in self.cam_ids:
+            cap = cv2.VideoCapture(cid, cv2.CAP_DSHOW)
+            if cap.isOpened():
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                cap.set(cv2.CAP_PROP_FPS, 30)
+                self.caps[cid] = cap
+                self.active[cid] = True
+                self.last_t[cid] = 0.0
+                self.camera_status.emit(cid, "已连接")
+            else:
+                self.camera_error.emit(cid, "无法打开")
+                cap.release()
+
+    def _close_all(self):
+        for cap in self.caps.values():
+            cap.release()
+        self.caps.clear()
+
+    def _grab_and_infer(self, cid, cls_names):
+        cap = self.caps.get(cid)
+        if not cap or not cap.isOpened():
+            return False
+
+        # 读帧非阻塞：先 grab 再 retrieve
+        if not cap.grab():
+            return False
+
+        now = time.time()
+        if now - self.last_t[cid] < self.period:
+            return True  # 未超时，但帧已 grab，避免堆积
+        self.last_t[cid] = now
+
+        ret, frame = cap.retrieve()
+        if not ret:
+            return False
+
+        try:
+            t0 = time.time()
+            results = self.model(frame, conf=self.conf, verbose=False)
+            infer_ms = (time.time() - t0) * 1000
+            out_img = results[0].plot()
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            rgb_out = cv2.cvtColor(out_img, cv2.COLOR_BGR2RGB)
+            self.camera_result_ready.emit(cid, rgb_frame, rgb_out,
+                                          infer_ms / 1000.0, results, cls_names)
+            return True
+        except Exception as e:
+            self.camera_error.emit(cid, f"推理异常: {e}")
+            return False
+
+    def _reconnect_later(self, cid):
+        # 简单策略：5 秒后重试
+        if self.active.get(cid) is False:
+            return
+        self.active[cid] = False
+        self.camera_status.emit(cid, "重连中…")
+        threading.Timer(5.0, lambda: self._try_reopen(cid)).start()
+
+    def _try_reopen(self, cid):
+        if cid in self.caps:
+            self.caps[cid].release()
+        cap = cv2.VideoCapture(cid)
+        if cap.isOpened():
+            self.caps[cid] = cap
+            self.active[cid] = True
+            self.camera_status.emit(cid, "已重连")
+        else:
+            cap.release()
+            self._reconnect_later(cid)
+
+
+class ModelSelectionDialog(QDialog):
+    """模型选择对话框"""
+
+    def __init__(self, model_manager, parent=None):
+        super().__init__(parent)
+        self.model_manager = model_manager
+        self.selected_model = None
+        self.init_ui()
+
+    def init_ui(self):
+        self.setWindowTitle("🔧 高级模型选择")
+        self.setModal(True)
+        self.resize(700, 450)
+
+        layout = QVBoxLayout(self)
+
+        # 自定义路径
+        path_group = QGroupBox("📁 自定义模型路径")
+        path_layout = QHBoxLayout(path_group)
+
+        self.path_edit = QLineEdit()
+        self.path_edit.setPlaceholderText("输入自定义模型目录路径...")
+        path_layout.addWidget(self.path_edit)
+
+        browse_btn = QPushButton("📂 浏览")
+        browse_btn.clicked.connect(self.browse_path)
+        path_layout.addWidget(browse_btn)
+
+        refresh_btn = QPushButton("🔄 刷新")
+        refresh_btn.clicked.connect(self.refresh_models)
+        path_layout.addWidget(refresh_btn)
+
+        layout.addWidget(path_group)
+
+        # 模型列表
+        models_group = QGroupBox("📋 可用模型")
+        models_layout = QVBoxLayout(models_group)
+
+        self.model_table = QTableWidget()
+        self.model_table.setColumnCount(4)
+        self.model_table.setHorizontalHeaderLabels(["模型名称", "大小", "修改时间", "路径"])
+        self.model_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.model_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.model_table.setAlternatingRowColors(True)
+        self.model_table.doubleClicked.connect(self.accept)
+
+        models_layout.addWidget(self.model_table)
+        layout.addWidget(models_group)
+
+        # 按钮
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+        # 设置样式
+        self.setStyleSheet("""
+            QDialog {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #f8f9fa, stop:1 #e9ecef);
+            }
+        """)
+
+        self.refresh_models()
+
+    def browse_path(self):
+        """浏览自定义路径"""
+        path = QFileDialog.getExistingDirectory(self, "选择模型目录")
+        if path:
+            self.path_edit.setText(path)
+            self.refresh_models()
+
+    def refresh_models(self):
+        """刷新模型列表"""
+        custom_path = self.path_edit.text() if self.path_edit.text() else None
+        models = self.model_manager.scan_models(custom_path)
+
+        self.model_table.setRowCount(len(models))
+
+        for i, model in enumerate(models):
+            self.model_table.setItem(i, 0, QTableWidgetItem(model['name']))
+            self.model_table.setItem(i, 1, QTableWidgetItem(model['size']))
+            self.model_table.setItem(i, 2, QTableWidgetItem(model['modified']))
+            self.model_table.setItem(i, 3, QTableWidgetItem(model['path']))
+
+    def accept(self):
+        """确认选择"""
+        current_row = self.model_table.currentRow()
+        if current_row >= 0:
+            self.selected_model = self.model_table.item(current_row, 3).text()
+        super().accept()
+
+
+class DetectionResultWidget(QWidget):
+    """检测结果显示组件"""
+
+    def __init__(self):
+        super().__init__()
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        # 标题
+        title = QLabel("🎯 检测结果详情表")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50; margin-bottom: 10px;")
+        # title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+
+        # 结果表格
+        self.result_table = QTableWidget()
+        self.result_table.setColumnCount(5)
+        self.result_table.setHorizontalHeaderLabels(["序号", "类别", "置信度", "坐标 (x,y)", "尺寸 (w×h)"])
+        self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.result_table.horizontalHeader().setStyleSheet("""
+            QHeaderView::section {
+                font-size: 10pt;
+                font-weight: bold;
+                height: 12px;     /* 在 QSS 里 height 对表头 section 生效 */
+            }
+        """)
+        self.result_table.setMaximumHeight(200)
+        self.result_table.setAlternatingRowColors(True)
+
+        layout.addWidget(self.result_table)
+
+        # 统计信息
+        self.stats_label = QLabel("等待检测结果...")
+        self.stats_label.setStyleSheet("""
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 rgba(236, 240, 241, 0.9), stop:1 rgba(189, 195, 199, 0.9));
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            color: #2c3e50;
+            font-weight: bold;
+        """)
+        layout.addWidget(self.stats_label)
+
+    def update_results(self, results, class_names, inference_time):
+        """更新检测结果"""
+        if not results or not results[0].boxes or len(results[0].boxes) == 0:
+            self.result_table.setRowCount(0)
+            self.stats_label.setText("❌ 未检测到目标")
+            return
+
+        boxes = results[0].boxes
+        confidences = boxes.conf.cpu().numpy()
+        classes = boxes.cls.cpu().numpy().astype(int)
+        xyxy = boxes.xyxy.cpu().numpy()
+
+        # 更新表格
+        self.result_table.setRowCount(len(confidences))
+
+        class_counts = {}
+        for i, (conf, cls, box) in enumerate(zip(confidences, classes, xyxy)):
+            class_name = class_names[cls] if cls < len(class_names) else f"类别{cls}"
+
+            # 统计类别数量
+            class_counts[class_name] = class_counts.get(class_name, 0) + 1
+
+            self.result_table.setItem(i, 0, QTableWidgetItem(str(i + 1)))
+            self.result_table.setItem(i, 1, QTableWidgetItem(class_name))
+
+            # 置信度带颜色
+            conf_item = QTableWidgetItem(f"{conf:.3f}")
+            if conf > 0.8:
+                conf_item.setBackground(QColor(46, 204, 113, 100))  # 绿色
+            elif conf > 0.5:
+                conf_item.setBackground(QColor(241, 196, 15, 100))  # 黄色
+            else:
+                conf_item.setBackground(QColor(231, 76, 60, 100))  # 红色
+            self.result_table.setItem(i, 2, conf_item)
+
+            self.result_table.setItem(i, 3, QTableWidgetItem(f"({box[0]:.0f},{box[1]:.0f})"))
+            self.result_table.setItem(i, 4, QTableWidgetItem(f"{box[2] - box[0]:.0f}×{box[3] - box[1]:.0f}"))
+
+        # 更新统计信息
+        total_objects = len(confidences)
+        avg_confidence = np.mean(confidences)
+
+        stats_text = f"✅ 检测到 {total_objects} 个目标 | "
+        stats_text += f"🎯 平均置信度: {avg_confidence:.3f} | "
+        stats_text += f"⏱️ 耗时: {inference_time:.3f}秒\n"
+        stats_text += "📊 类别统计: " + " | ".join([f"{name}: {count}" for name, count in class_counts.items()])
+
+        self.stats_label.setText(stats_text)
+
+
+class MonitoringWidget(QWidget):
+    """监控页面组件"""
+
+    def __init__(self, model_manager, camera_manager):
+        super().__init__()
+        self.model_manager = model_manager
+        self.camera_manager = camera_manager
+        self.monitoring_thread = None
+        self.camera_labels = {}
+        self.current_model = None
+        self.start_monitor_btn = QPushButton("🚀 开始监控")
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        # 控制面板
+        control_group = QGroupBox("🖥️ 监控控制")
+        control_group.setMaximumHeight(80)  # 单位像素
+        control_layout = QHBoxLayout(control_group)
+        model_layout = QHBoxLayout()
+        # 模型选择
+        model_camera_layout = QHBoxLayout()
+        model_layout.addWidget(QLabel("模型:"))
+
+        self.model_combo = QComboBox()
+        self.model_combo.currentTextChanged.connect(self.on_model_changed)
+        self.init_model_combo()
+        model_layout.addWidget(self.model_combo)
+
+        select_model_btn = QPushButton("🔧 选择模型")
+        select_model_btn.clicked.connect(self.select_model)
+        model_layout.addWidget(select_model_btn)
+        model_camera_layout.addLayout(model_layout)
+
+        # 摄像头选择
+        camera_layout = QHBoxLayout()
+        camera_layout.addWidget(QLabel("摄像头:"))
+
+        self.camera_list = QListWidget()
+        # self.camera_list.setMaximumHeight(20)
+        self.camera_list.setMaximumWidth(300)
+        self.camera_list.setSelectionMode(QListWidget.MultiSelection)
+        self.refresh_cameras()
+        camera_layout.addWidget(self.camera_list)
+
+        refresh_camera_btn = QPushButton("🔄 刷新")
+        refresh_camera_btn.clicked.connect(self.refresh_cameras)
+        camera_layout.addWidget(refresh_camera_btn)
+        camera_layout.addStretch()
+
+        model_camera_layout.addLayout(camera_layout)
+        control_layout.addLayout(model_camera_layout)
+
+        # 控制按钮
+        btn_layout = QHBoxLayout()
+
+        self.start_monitor_btn.clicked.connect(self.start_monitoring)
+        self.start_monitor_btn.setEnabled(True)
+        btn_layout.addWidget(self.start_monitor_btn)
+
+        self.stop_monitor_btn = QPushButton("⏸️ 暂停")
+        self.stop_monitor_btn.clicked.connect(self.stop_monitoring)
+        btn_layout.addWidget(self.stop_monitor_btn)
+
+        self.clear_monitor_btn = QPushButton("🗑️ 清除监控")
+        self.clear_monitor_btn.clicked.connect(self.clear_monitoring)
+        self.clear_monitor_btn.setEnabled(False)
+        self.stop_monitor_btn.setEnabled(False)
+        btn_layout.addWidget(self.clear_monitor_btn)
+
+        control_layout.addLayout(btn_layout)
+
+        layout.addWidget(control_group)
+
+        # 监控显示区域
+        self.monitor_scroll = QScrollArea()
+        self.monitor_scroll.setStyleSheet("""
+            QScrollArea {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgba(236, 240, 241, 0.9),
+                    stop:1 rgba(189, 195, 199, 0.9));
+                border-radius: 8px;
+            }
+            QScrollArea > QWidget > QWidget {   /* viewport */
+                background: transparent;
+            }
+            QScrollArea::corner {               /* 右下角空白三角 */
+                background: transparent;
+            }
+        """)
+        self.monitor_widget = QWidget()
+        self.monitor_layout = QGridLayout(self.monitor_widget)
+        self.monitor_scroll.setWidget(self.monitor_widget)
+        self.monitor_scroll.setWidgetResizable(True)
+
+        layout.addWidget(self.monitor_scroll)
+
+    def init_model_combo(self):
+        """初始化模型下拉框"""
+        self.model_combo.clear()
+        models = self.model_manager.scan_models()
+
+        if not models:
+            self.model_combo.addItem("无可用模型")
+            self.model_combo.setEnabled(False)
+        else:
+            self.model_combo.addItems([model['name'] for model in models])
+            self.model_combo.setEnabled(True)
+            self.try_load_default_model()
+
+    def try_load_default_model(self):
+        """尝试加载默认模型"""
+        if self.model_combo.count() > 0 and self.model_combo.itemText(0) != "无可用模型":
+            first_model = self.model_combo.itemText(0)
+            self.load_model_by_name(first_model)
+
+    def load_model_by_name(self, model_name):
+        """根据名称加载模型"""
+        models = self.model_manager.scan_models()
+        for model in models:
+            if model['name'] == model_name:
+                self.load_model(model['path'])
+                break
+
+    def on_model_changed(self, model_text):
+        """模型选择改变"""
+        if model_text != "无可用模型":
+            self.load_model_by_name(model_text)
+
+    def load_model(self, model_path):
+        """加载模型"""
+        try:
+            self.current_model = YOLO(model_path)
+            self.start_monitor_btn.setEnabled(True)
+            return True
+        except Exception as e:
+            pass
+
+            return False
+
+    def select_model(self):
+        """选择模型"""
+        dialog = ModelSelectionDialog(self.model_manager, self)
+        if dialog.exec() == QDialog.Accepted and dialog.selected_model:
+            try:
+                self.current_model = YOLO(dialog.selected_model)
+                model_name = Path(dialog.selected_model).name
+                self.model_combo.clear()
+                self.model_combo.addItem(model_name)
+                self.start_monitor_btn.setEnabled(True)
+                QMessageBox.information(self, "成功", f"模型加载成功: {model_name}")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"模型加载失败: {str(e)}")
+
+    def refresh_cameras(self):
+        """刷新摄像头列表"""
+        self.camera_manager.scan_cameras()
+        self.camera_list.clear()
+
+        for camera in self.camera_manager.get_available_cameras():
+            item = QListWidgetItem(f"📹 {camera['name']} ({camera['resolution']})")
+            item.setData(Qt.UserRole, camera['id'])
+            self.camera_list.addItem(item)
+
+    def start_monitoring(self):
+        """开始监控"""
+        if not self.current_model:
+            QMessageBox.warning(self, "警告", "请先选择模型")
+            return
+
+        selected_items = self.camera_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "警告", "请选择至少一个摄像头")
+            return
+
+        camera_ids = [item.data(Qt.UserRole) for item in selected_items]
+
+        # 清空之前的显示
+        self.clear_monitor_display()
+        self.clear_monitor_btn.setEnabled(True)
+
+        # 创建显示标签
+        self.create_camera_labels(camera_ids)
+        # 设置等高宽
+        self.set_equal_column_stretch()
+        # 启动监控线程
+        self.monitoring_thread = MultiCameraMonitorThread(self.current_model, camera_ids)
+        self.monitoring_thread.camera_result_ready.connect(self.update_camera_display)
+        self.monitoring_thread.camera_error.connect(self.handle_camera_error)
+        self.monitoring_thread.finished.connect(self.on_monitoring_finished)
+
+        self.monitoring_thread.start()
+
+        self.start_monitor_btn.setEnabled(False)
+        self.stop_monitor_btn.setEnabled(True)
+
+    def stop_monitoring(self):
+        """暂停/继续监控"""
+        if self.monitoring_thread and self.monitoring_thread._run_flag:
+            if self.monitoring_thread._paused_flag:  # 监测是否已暂停
+                self.monitoring_thread.resume()  # 恢复
+                self.stop_monitor_btn.setText("⏸️ 暂停")  # 按钮文字：暂停
+            else:
+                self.monitoring_thread.pause()  # 暂停
+                self.stop_monitor_btn.setText("▶️ 继续")  # 按钮文字：继续
+
+    def clear_monitoring(self):
+        """停止监控"""
+        self.monitoring_thread.stop()
+        self.clear_monitor_display()
+        self.clear_monitor_btn.setEnabled(False)
+
+    def create_camera_labels(self, camera_ids):
+        """创建摄像头显示标签"""
+        self.camera_labels = {}
+
+        cols = 2  # 每行2个摄像头
+        for i, camera_id in enumerate(camera_ids):
+            row = i // cols
+            col = i % cols
+
+            # 创建摄像头组
+            camera_group = QGroupBox(f"📹 摄像头 {camera_id}")
+            camera_group.setStyleSheet("""
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 rgba(248, 249, 250, 0.9), stop:1 rgba(233, 236, 239, 0.9));
+                color: #7f8c8d;
+                font-weight: bold;
+                font-size: 14px;
+                border-radius: 10px;
+
+            """)
+            # camera_group.setMaximumHeight(350)
+            camera_layout = QVBoxLayout(camera_group)
+
+            # 图像显示标签
+            image_label = QLabel("等待连接...")
+            image_label.setMinimumSize(300, 240)
+            image_label.setStyleSheet("""
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 rgba(248, 249, 250, 0.9), stop:1 rgba(233, 236, 239, 0.9));
+                color: #7f8c8d;
+                font-weight: bold;
+                font-size: 14px;
+                border-radius: 10px;
+
+            """)
+            image_label.setAlignment(Qt.AlignCenter)
+            image_label.setScaledContents(True)
+
+            camera_layout.addWidget(image_label, stretch=6)
+
+            # 状态标签
+            status_label = QLabel("状态: 初始化中...")
+            status_label.setStyleSheet("color: #7f8c8d; font-size: 10px;")
+            camera_layout.addWidget(status_label)
+            camera_layout.addStretch()
+
+            self.camera_labels[camera_id] = {
+                'image': image_label,
+                'status': status_label,
+                'group': camera_group
+            }
+
+            self.monitor_layout.addWidget(camera_group, row, col)
+
+    def set_equal_column_stretch(self):
+        for c in range(self.monitor_layout.columnCount()):
+            self.monitor_layout.setColumnStretch(c, 1)
+        for r in range(self.monitor_layout.rowCount()):
+            self.monitor_layout.setRowStretch(r, 1)
+
+    def clear_monitor_display(self):
+        """清空监控显示"""
+        for camera_id in list(self.camera_labels.keys()):
+            self.camera_labels[camera_id]['group'].deleteLater()
+        self.camera_labels.clear()
+
+    def update_camera_display(self, camera_id, original_img, result_img, inference_time, results, class_names):
+        """更新摄像头显示"""
+        if camera_id not in self.camera_labels:
+            return
+
+        # 显示结果图
+        self.display_image(result_img, self.camera_labels[camera_id]['image'])
+
+        # 更新状态
+        if results and results[0].boxes and len(results[0].boxes) > 0:
+            object_count = len(results[0].boxes)
+            self.camera_labels[camera_id]['status'].setText(
+                f"状态: 检测到 {object_count} 个目标 | 耗时: {inference_time:.3f}s"
+            )
+        else:
+            self.camera_labels[camera_id]['status'].setText(
+                f"状态: 无目标 | 耗时: {inference_time:.3f}s"
+            )
+
+    def handle_camera_error(self, camera_id, error_msg):
+        """处理摄像头错误"""
+        if camera_id in self.camera_labels:
+            self.camera_labels[camera_id]['status'].setText(f"错误: {error_msg}")
+            self.camera_labels[camera_id]['status'].setStyleSheet("color: red; font-size: 10px;")
+
+    def on_monitoring_finished(self):
+        """监控结束"""
+        self.start_monitor_btn.setEnabled(True)
+        self.stop_monitor_btn.setEnabled(False)
+
+        for camera_id in self.camera_labels:
+            self.camera_labels[camera_id]['status'].setText("状态: 已停止")
+
+    def display_image(self, img_array, label):
+        """显示图像"""
+        if img_array is None:
+            return
+
+        height, width, channel = img_array.shape
+        bytes_per_line = 3 * width
+        q_image = QImage(img_array.data, width, height, bytes_per_line, QImage.Format_RGB888)
+        pixmap = QPixmap.fromImage(q_image)
+        scaled_pixmap = pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        label.setPixmap(scaled_pixmap)
+
+
+class StyleManager:
+    """样式管理器 - 提供渐变和现代化UI样式"""
+
+    @staticmethod
+    def get_main_stylesheet():
+        return """
+            QMainWindow {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #f8f9fa, stop:1 #e9ecef);
+            }
+
+            QGroupBox {
+                font-weight: bold;
+                font-size: 12px;
+                border: 2px solid rgba(52, 152, 219, 0.7);
+                border-radius: 8px;
+                margin-top: 1ex;
+                padding-top: 15px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgba(255, 255, 255, 0.9), stop:1 rgba(245, 245, 245, 0.9));
+            }
+
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 15px;
+                padding: 0 10px 0 10px;
+                color: #2c3e50;
+                font-size: 13px;
+                font-weight: bold;
+            }
+
+            QPushButton {
+                padding: 2px 8px;
+                font-size: 12px;
+                font-weight: bold;
+                border: none;
+                border-radius: 8px;
+                color: white;
+                min-width: 65px;
+                min-height: 25px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #3498db, stop:1 #2980b9);
+            }
+
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #5dade2, stop:1 #3498db);
+                transform: translateY(-1px);
+            }
+
+            QPushButton:pressed {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #2980b9, stop:1 #1f618d);
+            }
+
+            QPushButton:disabled {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #bdc3c7, stop:1 #95a5a6);
+                color: #7f8c8d;
+            }
+
+            QComboBox {
+                padding: 2px 8px;
+                border: 2px solid rgba(189, 195, 199, 0.5);
+                border-radius: 8px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 white, stop:1 #f8f9fa);
+                font-size: 12px;
+                min-width: 150px;
+                min-height: 25px;
+            }
+
+            QComboBox:focus {
+                border-color: #3498db;
+                background: white;
+            }
+
+            QProgressBar {
+                border: 2px solid rgba(189, 195, 199, 0.5);
+                border-radius: 8px;
+                text-align: center;
+                font-weight: bold;
+                font-size: 11px;
+                max-height: 20px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #ecf0f1, stop:1 #d5dbdb);
+            }
+
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #2ecc71, stop:1 #27ae60);
+                border-radius: 6px;
+                margin: 1px;
+            }
+
+            QTextEdit {
+                border: 2px solid rgba(189, 195, 199, 0.5);
+                border-radius: 8px;
+                background: rgba(255, 255, 255, 0.95);
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 11px;
+                padding: 8px;
+                selection-background-color: #3498db;
+            }
+
+            QSlider::groove:horizontal {
+                border: 1px solid rgba(189, 195, 199, 0.5);
+                height: 8px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #ecf0f1, stop:1 #bdc3c7);
+                border-radius: 4px;
+            }
+
+            QSlider::handle:horizontal {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #3498db, stop:1 #2980b9);
+                border: 2px solid #2980b9;
+                width: 20px;
+                height: 20px;
+                margin: -8px 0;
+                border-radius: 12px;
+            }
+
+            QSlider::handle:horizontal:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #5dade2, stop:1 #3498db);
+            }
+
+            QSpinBox, QDoubleSpinBox {
+                padding: 6px 10px;
+                border: 2px solid rgba(189, 195, 199, 0.5);
+                border-radius: 6px;
+                background: white;
+                min-width: 80px;
+                font-size: 12px;
+            }
+
+            QTabWidget::pane {
+                border: 2px solid rgba(189, 195, 199, 0.5);
+                border-radius: 10px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgba(255, 255, 255, 0.95), stop:1 rgba(245, 245, 245, 0.95));
+                margin-top: 5px;
+            }
+
+            QTabBar::tab {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #ecf0f1, stop:1 #bdc3c7);
+                border: 2px solid rgba(189, 195, 199, 0.5);
+                border-bottom: none;
+                border-radius: 8px 8px 0 0;
+                padding: 12px 25px;
+                margin-right: 3px;
+                font-weight: bold;
+                font-size: 12px;
+                color: #2c3e50;
+            }
+
+            QTabBar::tab:selected {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #3498db, stop:1 #2980b9);
+                color: white;
+                border-color: rgba(52, 152, 219, 0.7);
+            }
+
+            QTabBar::tab:hover:!selected {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #d5dbdb, stop:1 #bdc3c7);
+            }
+
+            QTableWidget {
+                border: 2px solid rgba(189, 195, 199, 0.5);
+                border-radius: 8px;
+                background: white;
+                gridline-color: rgba(189, 195, 199, 0.3);
+                selection-background-color: rgba(52, 152, 219, 0.2);
+                alternate-background-color: rgba(248, 249, 250, 0.5);
+            }
+
+            QTableWidget::item {
+                padding: 8px;
+                border: none;
+            }
+
+            QTableWidget::item:selected {
+                background: rgba(52, 152, 219, 0.3);
+                color: #2c3e50;
+            }
+
+            QHeaderView::section {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #34495e, stop:1 #2c3e50);
+                color: white;
+                padding: 8px;
+                border: none;
+                font-weight: bold;
+            }
+
+            QListWidget {
+                border: 2px solid rgba(189, 195, 199, 0.5);
+                border-radius: 8px;
+                background: white;
+                selection-background-color: rgba(52, 152, 219, 0.2);
+            }
+
+            QListWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid rgba(189, 195, 199, 0.2);
+            }
+
+            QListWidget::item:selected {
+                background: rgba(52, 152, 219, 0.3);
+                color: #2c3e50;
+            }
+
+            QScrollBar:vertical {
+                background: rgba(236, 240, 241, 0.5);
+                width: 12px;
+                border-radius: 6px;
+            }
+
+            QScrollBar::handle:vertical {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #bdc3c7, stop:1 #95a5a6);
+                border-radius: 6px;
+                min-height: 20px;
+            }
+
+            QScrollBar::handle:vertical:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #95a5a6, stop:1 #7f8c8d);
+            }
+        """
+
+    @staticmethod
+    def get_image_label_style():
+        return """
+            border: 3px solid rgba(52, 152, 219, 0.3);
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                stop:0 rgba(248, 249, 250, 0.9), stop:1 rgba(233, 236, 239, 0.9));
+            color: #7f8c8d;
+            font-weight: bold;
+            font-size: 14px;
+            border-radius: 10px;
+            padding: 15px;
+        """
+
+
+class CameraManager:
+    """摄像头管理器 - 处理多摄像头检测和管理"""
+
+    def __init__(self):
+        self.cameras = []
+        self.scan_cameras()
+
+    def scan_cameras(self):
+        """扫描可用摄像头"""
+        self.cameras = []
+
+        # 检测摄像头（检测前8个索引）
+        for i in range(4):
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    # 获取摄像头信息
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    fps = cap.get(cv2.CAP_PROP_FPS)
+
+                    camera_info = {
+                        'id': i,
+                        'name': f"摄像头 {i}",
+                        'resolution': f"{width}x{height}",
+                        'fps': fps if fps > 0 else 30,
+                        'available': True
+                    }
+                    self.cameras.append(camera_info)
+                cap.release()
+
+        # 如果没有摄像头，添加虚拟摄像头用于测试
+        if not self.cameras:
+            self.cameras.append({
+                'id': -1,
+                'name': "未检测到摄像头",
+                'resolution': "N/A",
+                'fps': 0,
+                'available': False
+            })
+
+    def get_available_cameras(self):
+        """获取可用摄像头列表"""
+        return [cam for cam in self.cameras if cam['available']]
+
+    def get_camera_info(self, camera_id):
+        """获取摄像头信息"""
+        for cam in self.cameras:
+            if cam['id'] == camera_id:
+                return cam
+        return None
+
+
+class ModelManager:
+    """模型管理器 - 处理模型扫描和加载"""
+
+    def __init__(self):
+        self.models_paths = [
+            Path("pt_models"),
+            Path("models"),
+            Path("weights"),
+        ]
+        self.current_model = None
+        self.class_names = []
+
+    def scan_models(self, custom_path=None):
+        """扫描模型文件"""
+        models = []
+        search_paths = self.models_paths.copy()
+
+        if custom_path and Path(custom_path).exists():
+            search_paths.insert(0, Path(custom_path))
+
+        for model_dir in search_paths:
+            if model_dir.exists():
+                try:
+                    pt_files = sorted(model_dir.glob("*.pt"))
+                    for pt_file in pt_files:
+                        models.append({
+                            'name': pt_file.name,
+                            'path': str(pt_file),
+                            'size': self._get_file_size(pt_file),
+                            'modified': self._get_modification_time(pt_file)
+                        })
+                except Exception as e:
+                    print(f"扫描目录 {model_dir} 时出错: {e}")
+
+        return models
+
+    def load_model(self, model_path):
+        """加载模型"""
+        try:
+            self.current_model = YOLO(model_path)
+            self.class_names = list(self.current_model.names.values())
+            return True
+        except Exception as e:
+            print(f"模型加载失败: {e}")
+            return False
+
+    def get_class_names(self):
+        """获取类别名称"""
+        return self.class_names
+
+    def _get_file_size(self, file_path):
+        """获取文件大小"""
+        try:
+            size = file_path.stat().st_size
+            for unit in ['B', 'KB', 'MB', 'GB']:
+                if size < 1024.0:
+                    return f"{size:.1f} {unit}"
+                size /= 1024.0
+            return f"{size:.1f} TB"
+        except:
+            return "Unknown"
+
+    def _get_modification_time(self, file_path):
+        """获取修改时间"""
+        try:
+            timestamp = file_path.stat().st_mtime
+            return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M")
+        except:
+            return "Unknown"
+
+
+class DetectionThread(QThread):
+    """增强的检测线程"""
+    result_ready = Signal(object, object, float, object, list)  # 原图, 结果图, 耗时, 检测结果, 类别名称
+    progress_updated = Signal(int)
+    status_changed = Signal(str)
+    error_occurred = Signal(str)
+    fps_updated = Signal(float)
+    finished = Signal()
+
+    def __init__(self, model, source_type, source_path=None, camera_id=0, confidence_threshold=0.25):
+        super().__init__()
+        self.model = model
+        self.source_type = source_type
+        self.source_path = source_path
+        self.camera_id = camera_id
+        self.confidence_threshold = confidence_threshold
+        self.is_running = False
+        self.is_paused = False
+        self.frame_count = 0
+        self.fps_counter = 0
+        self.last_fps_time = time.time()
+
+    def run(self):
+        self.is_running = True
+        try:
+            if self.source_type == 'image':
+                self._process_image()
+            elif self.source_type == 'video':
+                self._process_video()
+            elif self.source_type == 'camera':
+                self._process_camera()
+        except Exception as e:
+            self.error_occurred.emit(f"检测过程发生错误: {str(e)}")
+        finally:
+            self.is_running = False
+            self.finished.emit()
+
+    def _process_image(self):
+        """处理单张图片"""
+        if not self.source_path or not Path(self.source_path).exists():
+            self.error_occurred.emit("图片文件不存在")
+            return
+
+        self.status_changed.emit("正在处理图片...")
+
+        start_time = time.time()
+        results = self.model(self.source_path, conf=self.confidence_threshold, verbose=False)
+        end_time = time.time()
+
+        original_img = cv2.imread(self.source_path)
+        if original_img is None:
+            self.error_occurred.emit("无法读取图片文件")
+            return
+
+        original_img = cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB)
+        result_img = results[0].plot()
+        result_img = cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB)
+        class_names = list(self.model.names.values())
+
+        self.result_ready.emit(original_img, result_img, end_time - start_time, results, class_names)
+        self.progress_updated.emit(100)
+
+    def _process_video(self):
+        """处理视频文件"""
+        if not self.source_path or not Path(self.source_path).exists():
+            self.error_occurred.emit("视频文件不存在")
+            return
+
+        cap = cv2.VideoCapture(self.source_path)
+        if not cap.isOpened():
+            self.error_occurred.emit("无法打开视频文件")
+            return
+
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        frame_count = 0
+        class_names = list(self.model.names.values())
+
+        self.status_changed.emit(f"开始处理视频 (共{total_frames}帧)...")
+
+        while cap.isOpened() and self.is_running:
+            if self.is_paused:
+                time.sleep(0.1)
+                continue
+
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            start_time = time.time()
+            results = self.model(frame, conf=self.confidence_threshold, verbose=False)
+            end_time = time.time()
+
+            original_img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            result_img = results[0].plot()
+            result_img = cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB)
+
+            self.result_ready.emit(original_img, result_img, end_time - start_time, results, class_names)
+
+            frame_count += 1
+            if total_frames > 0:
+                progress = int((frame_count / total_frames) * 100)
+                self.progress_updated.emit(progress)
+
+            # 更新FPS
+            self._update_fps()
+
+            # 状态更新（每30帧更新一次）
+            if frame_count % 30 == 0:
+                current_fps = self._get_current_fps()
+                self.status_changed.emit(f"处理中... {frame_count}/{total_frames} 帧 (FPS: {current_fps:.1f})")
+
+            time.sleep(0.033)  # 约30fps
+
+        cap.release()
+
+    def _process_camera(self):
+        """处理摄像头"""
+        cap = cv2.VideoCapture(self.camera_id)
+        if not cap.isOpened():
+            self.error_occurred.emit(f"无法打开摄像头 {self.camera_id}")
+            return
+
+        # 设置摄像头参数
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        cap.set(cv2.CAP_PROP_FPS, 30)
+
+        class_names = list(self.model.names.values())
+        self.status_changed.emit(f"摄像头 {self.camera_id} 已启动...")
+
+        while cap.isOpened() and self.is_running:
+            if self.is_paused:
+                time.sleep(0.1)
+                continue
+
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            start_time = time.time()
+            results = self.model(frame, conf=self.confidence_threshold, verbose=False)
+            end_time = time.time()
+
+            original_img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            result_img = results[0].plot()
+            result_img = cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB)
+
+            self.result_ready.emit(original_img, result_img, end_time - start_time, results, class_names)
+
+            # 更新FPS
+            self._update_fps()
+
+            # 状态更新（每60帧更新一次）
+            if self.frame_count % 60 == 0:
+                current_fps = self._get_current_fps()
+                self.status_changed.emit(f"摄像头运行中 (FPS: {current_fps:.1f})")
+
+            time.sleep(0.033)  # 约30fps
+
+        cap.release()
+
+    def _update_fps(self):
+        """更新FPS计算"""
+        self.frame_count += 1
+        self.fps_counter += 1
+
+        current_time = time.time()
+        if current_time - self.last_fps_time >= 1.0:
+            fps = self.fps_counter / (current_time - self.last_fps_time)
+            self.fps_updated.emit(fps)
+            self.fps_counter = 0
+            self.last_fps_time = current_time
+
+    def _get_current_fps(self):
+        """获取当前FPS"""
+        current_time = time.time()
+        if current_time - self.last_fps_time > 0:
+            return self.fps_counter / (current_time - self.last_fps_time)
+        return 0
+
+    def pause(self):
+        self.is_paused = True
+        self.status_changed.emit(f"暂停中...")
+
+    def resume(self):
+        self.is_paused = False
+        self.status_changed.emit(f"恢复检测")
+
+
+    def stop(self):
+        self.is_running = False
+        self.status_changed.emit(f"检测结束!")
+
 
 
 class EnhancedDetectionUI(QMainWindow):
