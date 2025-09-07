@@ -1970,7 +1970,7 @@ class SnapshotWidget(QWidget):
         left_panel = QVBoxLayout()
         
         list_group = QGroupBox("📋 快照历史")
-        list_group.setMaximumHeight(660)
+        list_group.setMaximumHeight(780)
         list_layout = QVBoxLayout(list_group)
         
         self.snapshot_list = QListWidget()
