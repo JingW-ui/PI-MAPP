@@ -39,6 +39,12 @@ class EnhancedDetectionUI(QMainWindow):
         self.batch_results = []
         self.current_batch_index = 0
 
+        # 快照相关属性
+        self.is_auto_saving = False
+        self.video_recorder = None
+        self.history_dir = Path("detection_history")
+        self.history_dir.mkdir(exist_ok=True)
+
         # 管理器
         self.camera_manager = CameraManager()
         self.model_manager = ModelManager()
@@ -193,6 +199,11 @@ class EnhancedDetectionUI(QMainWindow):
         self.stop_btn.clicked.connect(self.stop_detection)
         self.stop_btn.setEnabled(False)
         btn_layout.addWidget(self.stop_btn)
+        self.video_is_auto_saving = False
+        self.kuaizhao_btn = QPushButton("🎬 快照")
+        self.kuaizhao_btn.clicked.connect(self.kuaizhao_detection)
+        self.kuaizhao_btn.setEnabled(False)
+        btn_layout.addWidget(self.kuaizhao_btn)
 
         control_layout.addLayout(btn_layout)
 
@@ -646,6 +657,8 @@ class EnhancedDetectionUI(QMainWindow):
         self.source_combo.setEnabled(not detecting)
         self.select_file_btn.setEnabled(not detecting and self.current_source_type != "camera")
         self.model_combo.setEnabled(not detecting)
+        # 更新快照按钮状态
+        self.kuaizhao_btn.setEnabled(detecting and self.current_source_type in ["camera", "video"])
 
     def pause_detection(self):
         """暂停/恢复检测"""
@@ -671,6 +684,46 @@ class EnhancedDetectionUI(QMainWindow):
 
         self.on_detection_finished()
 
+    def kuaizhao_detection(self):
+        """切换自动保存监控快照状态"""
+        if not self.video_is_auto_saving:
+            self.start_auto_save()
+        else:
+            self.stop_auto_save()
+
+    def start_auto_save(self):
+        """开始自动保存快照"""
+        if not self.model:
+            QMessageBox.warning(self, "警告", "请先选择模型")
+            return
+
+        # 初始化视频录制器
+        source_name = "摄像头" if self.current_source_type == "camera" else "视频"
+        if self.current_source_type == "camera":
+            source_id = self.camera_combo.currentData()
+            source_name = f"摄像头{source_id}"
+        elif self.current_source_type == "video":
+            source_name = Path(self.current_source_path).stem
+
+        self.video_recorder = DetectionVideoRecorder(
+            source_name, self.history_dir
+        )
+        self.video_recorder.start_recording()
+
+        self.video_is_auto_saving = True
+        self.kuaizhao_btn.setText("⏹️ 停止快照")
+        self.log_message("🎬 开始记录快照")
+
+    def stop_auto_save(self):
+        """停止自动保存快照"""
+        if self.video_recorder:
+            self.video_recorder.stop_recording()
+            self.video_recorder = None
+
+        self.video_is_auto_saving = False
+        self.kuaizhao_btn.setText("🎬 快照")
+        self.log_message("⏹️ 停止记录快照")
+
     def on_detection_result(self, original_img, result_img, inference_time, results, class_names):
         """检测结果回调"""
         # 显示图像
@@ -680,6 +733,15 @@ class EnhancedDetectionUI(QMainWindow):
         # 更新结果详情
         self.result_detail_widget.update_results(results, class_names, inference_time)
 
+        # 如果正在录制快照，添加帧
+        if self.video_is_auto_saving and self.video_recorder:
+            detection_info = {
+                'results': results,
+                'class_names': class_names,
+                'inference_time': inference_time
+            }
+
+            self.video_recorder.add_frame(result_img, detection_info)
 
         # 记录日志（简化版，避免过多输出）
         if results and results[0].boxes and len(results[0].boxes) > 0:
@@ -747,6 +809,10 @@ class EnhancedDetectionUI(QMainWindow):
         self.update_detection_ui_state(False)
         self.pause_btn.setText("⏸️ 暂停")
         self.progress_bar.setValue(0)
+
+        # 停止快照录制
+        if self.video_is_auto_saving:
+            self.stop_auto_save()
 
     def show_batch_result(self, index):
         """显示批量结果"""
@@ -969,6 +1035,137 @@ class EnhancedDetectionUI(QMainWindow):
             icon.addPixmap(pixmap)
 
         return icon
+
+
+class DetectionVideoRecorder:
+    """检测视频录制器，用于记录实时检测的快照"""
+    
+    def __init__(self, source_name, output_dir, fps=20):
+        self.source_name = source_name
+        self.output_dir = output_dir
+        self.fps = fps
+        self.is_recording = False
+        self.video_writer = None
+        self.frames = []
+        self.detection_stats = {}
+        self.total_detections = 0
+        self.start_time = None
+        self.end_time = None
+        self.max_frames_per_file = fps * 60*60*24  # 24小时的视频
+        
+    def start_recording(self):
+        """开始录制"""
+        if self.is_recording:
+            return
+        
+        self.is_recording = True
+        self.start_time = time.time()
+        self.frames.clear()
+        self.detection_stats.clear()
+        self.total_detections = 0
+        
+        # 生成文件名
+        timestamp = int(self.start_time)
+        self.filename_base = f"{self.source_name}_{timestamp}"
+        self.mp4_path = self.output_dir / f"{self.filename_base}.mp4"
+        self.json_path = self.output_dir / f"{self.filename_base}.json"
+        
+        # 初始化视频写入器（稍后在添加第一帧时设置）
+        self.video_writer = None
+    
+    def add_frame(self, frame, detection_info):
+        """添加帧"""
+        if not self.is_recording:
+            return
+        # 检查是否有检测结果
+        if not detection_info or not detection_info.get('results'):
+            return
+
+        results = detection_info['results']
+        if not hasattr(results[0], 'boxes') or not results[0].boxes or len(results[0].boxes) == 0:
+            return
+        # 如果是第一帧，初始化视频写入器
+        if self.video_writer is None:
+            height, width = frame.shape[:2]
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            self.video_writer = cv2.VideoWriter(str(self.mp4_path), fourcc, self.fps, (width, height))
+        
+        # 写入帧 - 解决色差问题：将RGB转换为BGR
+        if frame.shape[2] == 3:  # 确保是3通道彩色图像
+            bgr_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            self.video_writer.write(bgr_frame)
+        else:
+            self.video_writer.write(frame)
+            
+        self.frames.append(frame.copy())
+        
+        # 更新检测统计
+        if detection_info and detection_info.get('results'):
+            results = detection_info['results']
+            if hasattr(results[0], 'boxes') and results[0].boxes and len(results[0].boxes) > 0:
+                self.total_detections += len(results[0].boxes)
+                
+                # 统计类别
+                if hasattr(results[0].boxes, 'cls'):
+                    classes = results[0].boxes.cls.cpu().numpy().astype(int)
+                    class_names = detection_info.get('class_names', [])
+                    
+                    for cls in classes:
+                        if cls < len(class_names):
+                            class_name = class_names[cls]
+                            self.detection_stats[class_name] = self.detection_stats.get(class_name, 0) + 1
+        
+        # 检查是否需要保存文件
+        if len(self.frames) >= self.max_frames_per_file:
+            self.save_recording()
+            self.start_recording()  # 开始新的录制
+    
+    def stop_recording(self):
+        """停止录制"""
+        if not self.is_recording:
+            return
+        
+        self.is_recording = False
+        self.end_time = time.time()
+        
+        if self.video_writer:
+            self.video_writer.release()
+            self.video_writer = None
+        
+        # 保存录制
+        if self.frames:
+            self.save_recording()
+    
+    def save_recording(self):
+        """保存录制"""
+        if not self.frames or not self.start_time:
+            return
+        
+        # 确保视频写入器已释放
+        if self.video_writer:
+            self.video_writer.release()
+            self.video_writer = None
+        
+        # 保存JSON元数据
+        metadata = {
+            'camera_id': self.source_name,
+            'source_name': self.source_name,
+            'start_time': self.start_time,
+            'end_time': self.end_time or time.time(),
+            'fps': self.fps,
+            'total_detections': self.total_detections,
+            'detection_stats': self.detection_stats,
+            'frame_count': len(self.frames),
+            'mp4_filename': self.mp4_path.name,
+            'json_filename': self.json_path.name
+        }
+        
+        with open(self.json_path, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
+        
+        print(f"保存检测快照: {self.source_name} - {len(self.frames)} 帧, {self.total_detections} 次检测")
+        print(f"文件路径: {self.mp4_path}")
+        print(f"JSON路径: {self.json_path}")
 
 
 def main():

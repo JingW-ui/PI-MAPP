@@ -1955,6 +1955,9 @@ class SnapshotWidget(QWidget):
         self.current_snapshot_index = 0
         self.monitor_history_dir = Path("monitor_history")
         self.monitor_history_dir.mkdir(exist_ok=True)
+        # 添加detection_history目录支持
+        self.detection_history_dir = Path("detection_history")
+        self.detection_history_dir.mkdir(exist_ok=True)
         
         self.init_ui()
         self.load_snapshots()
@@ -2014,19 +2017,14 @@ class SnapshotWidget(QWidget):
         
         # 视频显示区域
         self.video_label = QLabel("选择快照进行播放")
-        self.video_label.setMinimumSize(640, 450)
-        # self.video_label.setStyleSheet("""
-        #     QLabel {
-        #         border: 2px solid rgba(52, 152, 219, 0.3);
-        #         background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        #             stop:0 rgba(248, 249, 250, 0.9), stop:1 rgba(233, 236, 239, 0.9));
-        #         color: #7f8c8d;
-        #         font-weight: bold;
-        #         font-size: 14px;
-        #         border-radius: 10px;
-        #         padding: 15px;
-        #     }
-        # """)
+        self.video_label.setMinimumSize(640, 390)
+        self.video_label.setStyleSheet("""
+            QLabel {
+                border: 1px solid rgba(52, 152, 219, 0.3);
+                font-size: 14px;
+                border-radius: 10px;
+            }
+        """)
         self.video_label.setAlignment(Qt.AlignCenter)
         self.video_label.setScaledContents(True)
         player_layout.addWidget(self.video_label)
@@ -2059,10 +2057,18 @@ class SnapshotWidget(QWidget):
         
         # 快照信息
         info_group = QGroupBox("📊 快照信息")
+        info_group.setStyleSheet("""
+                    QGroupBox {
+                border: 1px solid rgba(52, 152, 219, 0.3);
+                font-size: 14px;
+                border-radius: 10px;
+            }
+        """
+        )
         info_layout = QVBoxLayout(info_group)
         
         self.info_text = QTextEdit()
-        self.info_text.setMaximumHeight(200)
+        self.info_text.setMinimumHeight(170)
         self.info_text.setReadOnly(True)
         self.info_text.setStyleSheet("""
             QTextEdit {
@@ -2075,7 +2081,7 @@ class SnapshotWidget(QWidget):
         """)
         info_layout.addWidget(self.info_text)
         
-        player_layout.addWidget(info_group,stretch=2)
+        player_layout.addWidget(info_group,stretch=3)
         right_panel.addWidget(player_group)
         
         content_layout.addLayout(right_panel, 2)
@@ -2281,7 +2287,33 @@ class SnapshotWidget(QWidget):
                         'json_path': str(json_file),
                         'mp4_path': str(mp4_file),
                         'fps': data.get('fps', 20),
-                        'total_detections': data.get('total_detections', 0)
+                        'total_detections': data.get('total_detections', 0),
+                        'source': 'monitor'  # 标记来源为监控
+                    }
+                    self.snapshots.append(snapshot_info)
+            except Exception as e:
+                print(f"加载快照失败 {json_file}: {e}")
+        
+        # 扫描detection_history目录下的JSON文件
+        for json_file in self.detection_history_dir.glob("*.json"):
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                # 检查对应的MP4文件是否存在
+                mp4_file = json_file.with_suffix('.mp4')
+                if mp4_file.exists():
+                    snapshot_info = {
+                        'camera_name': data.get('source_name', '未知源'),
+                        'start_time': data.get('start_time', 0),
+                        'end_time': data.get('end_time', 0),
+                        'file_size': self._get_file_size(mp4_file),
+                        'detection_stats': data.get('detection_stats', {}),
+                        'json_path': str(json_file),
+                        'mp4_path': str(mp4_file),
+                        'fps': data.get('fps', 20),
+                        'total_detections': data.get('total_detections', 0),
+                        'source': 'detection'  # 标记来源为检测
                     }
                     self.snapshots.append(snapshot_info)
             except Exception as e:
@@ -2320,7 +2352,9 @@ class SnapshotWidget(QWidget):
                     stats_items.append(f"{class_name}:{count}")
                 stats_text = " | ".join(stats_items)
             
-            item_text = f"📹 {snapshot['camera_name']}\n"
+            # 根据来源添加不同的前缀标识
+            source_prefix = "🖥️" if snapshot['source'] == 'monitor' else "📹"
+            item_text = f"{source_prefix} {snapshot['camera_name']}\n"
             item_text += f"时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')} - {end_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
             item_text += f"文件大小: {snapshot['file_size']} | 检测次数: {snapshot['total_detections']}\n"
             if stats_text:
@@ -2334,8 +2368,8 @@ class SnapshotWidget(QWidget):
         """快照被选中"""
         snapshot = item.data(Qt.UserRole)
         self.current_snapshot_index = self.snapshots.index(snapshot)
-        
         self.play_btn.setEnabled(True)
+        # self.playback_btn.setEnabled(True)
         self.delete_btn.setEnabled(True)
         self.export_btn.setEnabled(True)
         
