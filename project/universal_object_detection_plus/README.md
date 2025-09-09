@@ -461,12 +461,11 @@ kaggle: https://www.kaggle.com
 | 1       | brown hole            | 棕色孔洞         |
 | 2       | small red cylinder    | 小红色圆柱体     |
 | 3       | yellow cube           | 黄色立方体       |
-```
 
 #### 🎉 **权重获取方式** 📧
 联系邮箱：2642144249@qq.com
 
-💰 **价格**：19.9RMB/个
+💰 **价格**：1.99RMB/个
 
 📝 **需要提供**：
 - 支付记录截图

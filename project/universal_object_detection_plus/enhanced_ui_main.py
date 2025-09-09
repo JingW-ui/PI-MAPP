@@ -103,7 +103,6 @@ class BatchDetectionThread(QThread):
         """停止批量检测"""
         self.is_running = False
 
-
 class MultiCameraMonitorThread(QThread):
     camera_result_ready = Signal(int, object, object, float, object, list)
     camera_error = Signal(int, str)
@@ -240,7 +239,6 @@ class MultiCameraMonitorThread(QThread):
             cap.release()
             self._reconnect_later(cid)
 
-
 class ModelSelectionDialog(QDialog):
     """模型选择对话框"""
 
@@ -332,7 +330,6 @@ class ModelSelectionDialog(QDialog):
         if current_row >= 0:
             self.selected_model = self.model_table.item(current_row, 3).text()
         super().accept()
-
 
 class DetectionResultWidget(QWidget):
     """检测结果显示组件"""
@@ -428,7 +425,6 @@ class DetectionResultWidget(QWidget):
         stats_text += "📊 类别统计: " + " | ".join([f"{name}: {count}" for name, count in class_counts.items()])
 
         self.stats_label.setText(stats_text)
-
 
 class MonitoringWidget(QWidget):
     """监控页面组件"""
@@ -754,7 +750,6 @@ class MonitoringWidget(QWidget):
         scaled_pixmap = pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
         label.setPixmap(scaled_pixmap)
 
-
 class StyleManager:
     """样式管理器 - 提供渐变和现代化UI样式"""
 
@@ -1002,7 +997,6 @@ class StyleManager:
             padding: 15px;
         """
 
-
 class CameraManager:
     """摄像头管理器 - 处理多摄像头检测和管理"""
 
@@ -1055,7 +1049,6 @@ class CameraManager:
             if cam['id'] == camera_id:
                 return cam
         return None
-
 
 class ModelManager:
     """模型管理器 - 处理模型扫描和加载"""
@@ -1126,7 +1119,6 @@ class ModelManager:
             return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M")
         except:
             return "Unknown"
-
 
 class DetectionThread(QThread):
     """增强的检测线程"""
@@ -1320,8 +1312,6 @@ class DetectionThread(QThread):
     def stop(self):
         self.is_running = False
         self.status_changed.emit(f"检测结束!")
-
-
 
 class EnhancedDetectionUI(QMainWindow):
     """增强的检测UI主窗口"""
@@ -2213,7 +2203,6 @@ class EnhancedDetectionUI(QMainWindow):
             icon.addPixmap(pixmap)
 
         return icon
-
 
 def main():
     app = QApplication(sys.argv)
