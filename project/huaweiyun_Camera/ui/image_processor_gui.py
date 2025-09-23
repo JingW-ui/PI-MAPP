@@ -15,6 +15,154 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
 from PySide6.QtCore import Qt, QThread, Signal, QSize, QRect
 from PySide6.QtGui import QFont, QPixmap, QPainter
 
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+import pandas as pd
+
+class CSVComparisonWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.layout = QVBoxLayout(self)
+
+        # 创建matplotlib图形
+        self.figure, self.ax = plt.subplots(figsize=(10, 6))
+        self.canvas = FigureCanvas(self.figure)
+        self.layout.addWidget(self.canvas)
+
+        # 设置中文字体支持
+        plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans', 'Arial Unicode MS', 'sans-serif']
+        plt.rcParams['axes.unicode_minus'] = False  # 解决负号'-'显示为方块的问题
+
+        self.setLayout(self.layout)
+
+    def compare_csvs(self, csv1_path, csv2_path):
+        """比较两个CSV文件并可视化结果"""
+        try:
+            # 读取CSV文件
+            df1 = pd.read_csv(csv1_path)
+            df2 = pd.read_csv(csv2_path)
+
+            # 检查必要的列是否存在
+            required_columns = ['Image']
+            # 检查可用的评估指标列
+            metrics = []
+            if 'PSNR' in df1.columns and 'PSNR' in df2.columns:
+                metrics.append('PSNR')
+            if 'SSIM' in df1.columns and 'SSIM' in df2.columns:
+                metrics.append('SSIM')
+            if 'LPIPS' in df1.columns and 'LPIPS' in df2.columns:
+                metrics.append('LPIPS')
+
+            if not metrics:
+                raise ValueError("CSV文件中没有找到有效的评估指标列 (PSNR, SSIM, LPIPS)")
+
+            # 合并数据框基于Image列
+            merged_df = pd.merge(df1, df2, on='Image', suffixes=('_1', '_2'))
+
+            # 计算差值和统计信息
+            stats_info = {}
+            axes_data = {}  # 存储每个指标的数据用于绘图
+
+            for metric in metrics:
+                # 计算差值
+                diff_col = f'{metric}_diff'
+                merged_df[diff_col] = abs(merged_df[f'{metric}_1'] - merged_df[f'{metric}_2'])
+
+                # 计算统计信息
+                stats_info[metric.lower()] = {
+                    'mean': merged_df[diff_col].mean(),
+                    'std': merged_df[diff_col].std(),
+                    'var': merged_df[diff_col].var(),
+                    'max': merged_df[diff_col].max()
+                }
+
+                # 存储绘图数据
+                axes_data[metric] = {
+                    'y1': merged_df[f'{metric}_1'],
+                    'y2': merged_df[f'{metric}_2'],
+                    'label1': f'{metric} 文件1',
+                    'label2': f'{metric} 文件2'
+                }
+
+            # 清除之前的图形 - 重要：需要清除整个图表包括twinx
+            self.ax.clear()
+            # 如果存在twinx，也需要清除
+            if hasattr(self, 'ax2'):
+                self.ax2.clear()
+                # 删除旧的ax2以避免残留
+                self.ax2.remove()
+            if hasattr(self, 'ax3'):
+                self.ax3.clear()
+                # 删除旧的ax3以避免残留
+                self.ax3.remove()
+
+            # 根据指标数量创建适当数量的y轴
+            axes = [self.ax]
+            if len(metrics) > 1:
+                self.ax2 = self.ax.twinx()
+                axes.append(self.ax2)
+            if len(metrics) > 2:
+                self.ax3 = self.ax.twinx()
+                axes.append(self.ax3)
+
+                # 调整第三个y轴位置
+                self.ax3.spines['right'].set_position(('outward', 60))
+
+            # 创建散点图
+            x = range(len(merged_df))
+            lines = []
+            colors = ['blue', 'red', 'green']  # 为不同指标设置不同颜色
+            markers = ['o', 's', '^']  # 为不同指标设置不同标记
+
+            for i, (metric, ax) in enumerate(zip(metrics, axes)):
+                line1, = ax.plot(x, axes_data[metric]['y1'],
+                                 marker=markers[i % len(markers)],
+                                 linestyle='-',
+                                 label=axes_data[metric]['label1'],
+                                 markersize=4,
+                                 color=colors[i % len(colors)])
+                line2, = ax.plot(x, axes_data[metric]['y2'],
+                                 marker=markers[i % len(markers)],
+                                 linestyle='-',
+                                 label=axes_data[metric]['label2'],
+                                 markersize=4,
+                                 color=colors[(i + 1) % len(colors)])
+                lines.extend([line1, line2])
+
+                # 设置y轴标签颜色
+                ax.set_ylabel(f'{metric}值', color=colors[i % len(colors)])
+                ax.tick_params(axis='y', labelcolor=colors[i % len(colors)])
+
+            # 设置图表属性
+            self.ax.set_xlabel('图像索引')
+
+            # 合并图例
+            labels = [line.get_label() for line in lines]
+            self.ax.legend(lines, labels, loc='upper left', bbox_to_anchor=(0, 1))
+
+            # 设置标题和网格
+            self.ax.set_title('CSV文件对比: 多指标')
+            self.ax.grid(True, linestyle='--', alpha=0.7)
+
+            # 旋转x轴标签以提高可读性
+            self.ax.set_xticks(x)
+            self.ax.set_xticklabels(merged_df['Image'], rotation=45, ha='right')
+
+            # 调整布局
+            try:
+                self.figure.tight_layout()
+            except:
+                self.figure.subplots_adjust(bottom=0.2)  # 确保有足够的底部空间显示x轴标签
+
+            # 刷新画布
+            self.canvas.draw()
+
+            # 返回统计信息用于显示
+            return True, stats_info
+
+        except Exception as e:
+            return False, f"对比失败: {str(e)}"
+
 
 class ImageComparisonWidget(QWidget):
     def __init__(self, parent=None):
@@ -108,10 +256,10 @@ class StyleManager:
             QGroupBox {
                 font-weight: bold;
                 font-size: 12px;
-                border: 2px solid rgba(52, 152, 219, 0.7);
+                border: 1px solid rgba(52, 152, 219, 0.5);
                 border-radius: 8px;
                 margin-top: 1ex;
-                padding-top: 15px;
+                padding-top: 16px;
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 rgba(255, 255, 255, 0.9), stop:1 rgba(245, 245, 245, 0.9));
             }
@@ -261,6 +409,37 @@ class StyleManager:
             border-radius: 10px;
             padding: 15px;
         """
+    @staticmethod
+    def get_button_style():
+        return"""
+                            QPushButton {
+                padding: 6px 12px;
+                font-size: 12px;
+                font-weight: bold;
+                border: none;
+                border-radius: 8px;
+                color: white;
+                min-width: 40px;
+                min-height: 20px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #3498db, stop:1 #2980b9);
+            }
+                        QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #5dade2, stop:1 #3498db);
+                transform: translateY(-1px);
+            }
+
+            QPushButton:pressed {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #2980b9, stop:1 #1f618d);
+            }
+
+            QPushButton:disabled {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #bdc3c7, stop:1 #95a5a6);
+                color: #7f8c8d;
+            }"""
 
 
 # ======================
@@ -367,11 +546,45 @@ def evaluate_images(pred_path: str, gt_path: str) -> Optional[Dict[str, float]]:
         return None
     if pred.shape != gt.shape:
         return None
+
+    # 原有的PSNR和SSIM计算
     pred_gray = cv2.cvtColor(pred, cv2.COLOR_BGR2GRAY)
     gt_gray = cv2.cvtColor(gt, cv2.COLOR_BGR2GRAY)
     p = psnr(gt, pred)
     s = ssim(gt_gray, pred_gray)
-    return {"PSNR": p, "SSIM": s}
+
+    # 新增LPIPS计算
+    try:
+        import lpips
+        import torch
+
+        # 初始化LPIPS模型
+        loss_fn = lpips.LPIPS(net='alex')
+
+        # 将图像转换为tensor并归一化到[-1, 1]
+        # 注意：cv2读取的图像是BGR格式，需要转换为RGB
+        pred_rgb = cv2.cvtColor(pred, cv2.COLOR_BGR2RGB)
+        gt_rgb = cv2.cvtColor(gt, cv2.COLOR_BGR2RGB)
+
+        # 转换为tensor并调整维度顺序 (H, W, C) -> (C, H, W)
+        pred_tensor = torch.from_numpy(pred_rgb).float() / 255.0 * 2 - 1
+        gt_tensor = torch.from_numpy(gt_rgb).float() / 255.0 * 2 - 1
+
+        # 添加批次维度 (C, H, W) -> (1, C, H, W)
+        pred_tensor = pred_tensor.permute(2, 0, 1).unsqueeze(0)
+        gt_tensor = gt_tensor.permute(2, 0, 1).unsqueeze(0)
+
+        # 计算LPIPS值
+        d = loss_fn(pred_tensor, gt_tensor)
+        l = d.item()
+
+        return {"PSNR": p, "SSIM": s, "LPIPS": l}
+    except ImportError:
+        # 如果没有安装lpips库，则只返回PSNR和SSIM
+        return {"PSNR": p, "SSIM": s}
+    except Exception:
+        # 如果计算LPIPS时出现其他错误，也只返回PSNR和SSIM
+        return {"PSNR": p, "SSIM": s}
 
 
 # ======================
@@ -492,6 +705,7 @@ class WorkerThread(QThread):
 
         self.log_updated.emit("整合完成！")
 
+    # 修复 _run_evaluate 方法中的进度条更新
     def _run_evaluate(self):
         pred_dir = self.kwargs.get("pred_dir")
         gt_dir = self.kwargs.get("gt_dir")
@@ -504,20 +718,91 @@ class WorkerThread(QThread):
         common_names = set(pred_files.keys()) & set(gt_files.keys())
         results = []
 
-        for name in sorted(common_names):
+        # 添加总数量用于进度条计算
+        total = len(common_names)
+
+        for i, name in enumerate(sorted(common_names)):
             pred_path = str(pred_files[name])
             gt_path = str(gt_files[name])
             eval_result = evaluate_images(pred_path, gt_path)
             if eval_result:
                 eval_result["Image"] = name
                 results.append(eval_result)
-                self.log_updated.emit(f"{name}: PSNR={eval_result['PSNR']:.2f}, SSIM={eval_result['SSIM']:.4f}")
+                # self.log_updated.emit(f"{name}: PSNR={eval_result['PSNR']:.2f}, SSIM={eval_result['SSIM']:.4f}")
+                log_msg = f"{name}: PSNR={eval_result['PSNR']:.2f}, SSIM={eval_result['SSIM']:.4f}"
+                if "LPIPS" in eval_result:
+                    log_msg += f", LPIPS={eval_result['LPIPS']:.4f}"
+                self.log_updated.emit(log_msg)
             else:
                 self.log_updated.emit(f"{name}: 评估失败（图像不存在/尺寸不一致）")
+
+            # 添加进度条更新
+            self.progress_updated.emit(int((i + 1) / total * 100))
 
         df = pd.DataFrame(results)
         df.to_csv(output_csv, index=False)
         self.log_updated.emit(f"评估完成，结果已保存至 {output_csv}")
+
+# 在WorkerThread类之后添加以下代码
+
+class ResizerWorker(QThread):
+    progress_updated = Signal(int)
+    log_updated = Signal(str)
+    finished_signal = Signal(bool, str)
+
+    def __init__(self, src_dir, dst_dir, algo, ratio, fmt):
+        super().__init__()
+        self.src_dir = Path(src_dir)
+        self.dst_dir = Path(dst_dir)
+        self.algo = algo
+        self.ratio = ratio
+        self.fmt = fmt
+        self._running = True
+
+    def run(self):
+        try:
+            suffixes = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif')
+            files = [f for f in self.src_dir.iterdir()
+                     if f.suffix.lower() in suffixes]
+            total = len(files)
+            if total == 0:
+                self.log_updated.emit("输入目录中没有支持的图片")
+                self.finished_signal.emit(True, "操作完成，但输入目录中没有支持的图片")
+                return
+
+            self.dst_dir.mkdir(parents=True, exist_ok=True)
+
+            # 映射算法
+            interp_map = {
+                "Lanczos3": cv2.INTER_LANCZOS4,
+                "Mitchell-Netravali": cv2.INTER_CUBIC,
+                "Area": cv2.INTER_AREA
+            }
+            inter = interp_map.get(self.algo, cv2.INTER_AREA)
+
+            for idx, img_path in enumerate(files, 1):
+                if not self._running:
+                    break
+                ext = self.fmt.lower()
+                out_path = (self.dst_dir / img_path.stem).with_suffix(ext)
+                img = cv2.imread(str(img_path))
+                if img is None:
+                    self.log_updated.emit(f"读取失败：{img_path.name}")
+                    continue
+
+                h, w = img.shape[:2]
+                new_size = (int(w / self.ratio), int(h / self.ratio))  # 确保是整数
+                resized = cv2.resize(img, new_size, interpolation=inter)
+                cv2.imwrite(str(out_path), resized)
+                self.log_updated.emit(f"已处理：{img_path.name}  ->  {out_path.name}")
+                self.progress_updated.emit(int(idx / total * 100))
+
+            self.finished_signal.emit(True, "批量缩放完成！")
+        except Exception as e:
+            self.finished_signal.emit(False, f"操作失败：{str(e)}")
+
+    def stop(self):
+        self._running = False
 
 
 # ======================
@@ -552,17 +837,27 @@ class MainWindow(QMainWindow):
 
         # Tab 4: 单图对比
         self.tab_single_eval = self._create_single_eval_tab()
-        self.tabs.addTab(self.tab_single_eval, "单图对比")
+        self.tabs.addTab(self.tab_single_eval, "单图及csv对比")
+
+        # Tab 5: 图像缩放
+        self.tab_resizer = self._create_resizer_tab()
+        self.tabs.addTab(self.tab_resizer, "批量缩放")
 
         self.setCentralWidget(central_widget)
 
         # Thread
         self.worker_thread = None
 
-    # 将其替换为：
     def _create_single_eval_tab(self):
         widget = QWidget()
         layout = QVBoxLayout(widget)
+
+        # 创建TabWidget用于单图对比和CSV对比
+        tab_widget = QTabWidget()
+
+        # 单图对比Tab
+        single_image_tab = QWidget()
+        single_image_layout = QVBoxLayout(single_image_tab)
 
         group_input = QGroupBox("图像选择")
         layout_input = QGridLayout(group_input)
@@ -580,15 +875,11 @@ class MainWindow(QMainWindow):
         layout_input.addWidget(self.single_gt_path, 1, 1)
         layout_input.addWidget(self.single_gt_browse, 1, 2)
 
-        layout.addWidget(group_input)
-
-        # 修改对比结果显示部分
-        group_result = QGroupBox("对比结果")
-        layout_result = QVBoxLayout(group_result)
+        single_image_layout.addWidget(group_input)
 
         # 添加图像对比控件
         self.image_comparison = ImageComparisonWidget()
-        layout_result.addWidget(self.image_comparison,stretch=5)
+        single_image_layout.addWidget(self.image_comparison, stretch=5)
 
         # 添加滑动条来控制图像分割
         self.split_slider = QSlider(Qt.Horizontal)
@@ -596,32 +887,211 @@ class MainWindow(QMainWindow):
         self.split_slider.setMaximum(100)
         self.split_slider.setValue(50)  # 默认在中间
         self.split_slider.valueChanged.connect(self._on_split_slider_changed)
-        layout_result.addWidget(self.split_slider)
+        single_image_layout.addWidget(self.split_slider)
 
         self.single_log = QTextEdit()
-        self.single_log.setMaximumHeight(60)
-        layout_result.addWidget(self.single_log)
-        layout.addWidget(group_result)
+        self.single_log.setMaximumHeight(120)
+        single_image_layout.addWidget(self.single_log)
 
         self.single_eval_button = QPushButton("开始对比")
-        self.single_eval_button.setStyleSheet("""
-                    QPushButton {
-                padding: 6px 12px;
-                font-size: 12px;
-                font-weight: bold;
-                border: none;
-                border-radius: 8px;
-                color: white;
-                min-width: 40px;
-                min-height: 20px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #3498db, stop:1 #2980b9);
-            }
-                        """)
+        self.single_eval_button.setStyleSheet(StyleManager.get_button_style())
         self.single_eval_button.clicked.connect(self._on_single_eval_clicked)
-        layout.addWidget(self.single_eval_button)
+        single_image_layout.addWidget(self.single_eval_button)
+
+        tab_widget.addTab(single_image_tab, "单图对比")
+
+        # CSV对比Tab
+        csv_comparison_tab = QWidget()
+        csv_comparison_layout = QVBoxLayout(csv_comparison_tab)
+
+        # CSV文件选择区域
+        csv_group = QGroupBox("CSV文件选择")
+        csv_layout = QGridLayout(csv_group)
+
+        csv_layout.addWidget(QLabel("CSV文件1:"), 0, 0)
+        self.csv_file1_path = QLineEdit()
+        self.csv_file1_browse = QPushButton("浏览...")
+        self.csv_file1_browse.clicked.connect(lambda: self._browse_csv_file(self.csv_file1_path))
+        csv_layout.addWidget(self.csv_file1_path, 0, 1)
+        csv_layout.addWidget(self.csv_file1_browse, 0, 2)
+
+        csv_layout.addWidget(QLabel("CSV文件2:"), 1, 0)
+        self.csv_file2_path = QLineEdit()
+        self.csv_file2_browse = QPushButton("浏览...")
+        self.csv_file2_browse.clicked.connect(lambda: self._browse_csv_file(self.csv_file2_path))
+        csv_layout.addWidget(self.csv_file2_path, 1, 1)
+        csv_layout.addWidget(self.csv_file2_browse, 1, 2)
+
+        csv_comparison_layout.addWidget(csv_group)
+
+        # CSV对比结果显示区域
+        self.csv_comparison_widget = CSVComparisonWidget()
+        csv_comparison_layout.addWidget(self.csv_comparison_widget)
+
+        # CSV操作按钮区域 - 使用横向布局
+        button_layout = QHBoxLayout()
+        self.csv_compare_button = QPushButton("对比CSV文件")
+        self.csv_compare_button.setStyleSheet(StyleManager.get_button_style())
+        self.csv_compare_button.clicked.connect(self._on_csv_compare_clicked)
+
+        self.csv_clear_button = QPushButton("清空对比")
+        self.csv_clear_button.setStyleSheet(StyleManager.get_button_style())
+        self.csv_clear_button.clicked.connect(self._on_csv_clear_clicked)
+
+        button_layout.addWidget(self.csv_compare_button)
+        button_layout.addWidget(self.csv_clear_button)
+
+        # CSV对比日志
+        self.csv_log = QTextEdit()
+        self.csv_log.setMaximumHeight(120)
+        csv_comparison_layout.addWidget(self.csv_log)
+        csv_comparison_layout.addLayout(button_layout)
+
+        tab_widget.addTab(csv_comparison_tab, "CSV对比")
+
+        layout.addWidget(tab_widget)
+        widget.setLayout(layout)
 
         return widget
+
+        # 在 _create_single_eval_tab 方法之后添加以下代码
+
+    def _create_resizer_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # 算法设置组
+        group_algo = QGroupBox("算法设置")
+        layout_algo = QHBoxLayout(group_algo)
+
+        layout_algo.addWidget(QLabel("算法："))
+        self.resizer_algo_cb = QComboBox()
+        self.resizer_algo_cb.addItems(["Lanczos3", "Mitchell-Netravali", "Area"])
+        layout_algo.addWidget(self.resizer_algo_cb)
+
+        layout_algo.addWidget(QLabel("比例："))
+        self.resizer_ratio_sb = QSpinBox()
+        self.resizer_ratio_sb.setRange(2, 8)
+        self.resizer_ratio_sb.setValue(2)
+        self.resizer_ratio_sb.setSuffix("×")
+        layout_algo.addWidget(self.resizer_ratio_sb)
+
+        layout_algo.addWidget(QLabel("输出格式："))
+        self.resizer_fmt_cb = QComboBox()
+        self.resizer_fmt_cb.addItems([".jpg", ".png", ".bmp", ".tiff"])
+        self.resizer_fmt_cb.setCurrentText(".jpg")
+        layout_algo.addWidget(self.resizer_fmt_cb)
+
+        layout.addWidget(group_algo)
+
+        # 路径设置组
+        group_paths = QGroupBox("路径设置")
+        layout_paths = QGridLayout(group_paths)
+
+        layout_paths.addWidget(QLabel("输入目录:"), 0, 0)
+        self.resizer_src_dir = QLineEdit()
+        self.resizer_src_browse = QPushButton("浏览...")
+        self.resizer_src_browse.clicked.connect(lambda: self._browse_folder(self.resizer_src_dir))
+        layout_paths.addWidget(self.resizer_src_dir, 0, 1)
+        layout_paths.addWidget(self.resizer_src_browse, 0, 2)
+
+        layout_paths.addWidget(QLabel("输出目录:"), 1, 0)
+        self.resizer_dst_dir = QLineEdit()
+        self.resizer_dst_browse = QPushButton("浏览...")
+        self.resizer_dst_browse.clicked.connect(lambda: self._browse_folder(self.resizer_dst_dir))
+        layout_paths.addWidget(self.resizer_dst_dir, 1, 1)
+        layout_paths.addWidget(self.resizer_dst_browse, 1, 2)
+
+        layout.addWidget(group_paths)
+
+        # 进度和日志组
+        group_progress = QGroupBox("执行状态")
+        layout_progress = QVBoxLayout(group_progress)
+
+        self.resizer_progress = QProgressBar()
+        self.resizer_log = QTextEdit()
+        # self.resizer_log.setMaximumHeight(200)
+
+        layout_progress.addWidget(self.resizer_log,stretch=5)
+        layout_progress.addWidget(self.resizer_progress)
+        layout.addWidget(group_progress,stretch=1)
+
+        # 按钮布局
+        button_layout = QHBoxLayout()
+        self.resizer_run_btn = QPushButton("开始")
+        self.resizer_stop_btn = QPushButton("停止")
+        self.resizer_stop_btn.setEnabled(False)
+
+        self.resizer_run_btn.setStyleSheet(StyleManager.get_button_style())
+        self.resizer_stop_btn.setStyleSheet(StyleManager.get_button_style())
+
+        self.resizer_run_btn.clicked.connect(self._on_resizer_run)
+        self.resizer_stop_btn.clicked.connect(self._on_resizer_stop)
+
+        button_layout.addWidget(self.resizer_run_btn)
+        button_layout.addWidget(self.resizer_stop_btn)
+        layout.addLayout(button_layout)
+
+        widget.setLayout(layout)
+        return widget
+
+    # 在MainWindow类中添加以下方法
+
+    def _browse_csv_file(self, line_edit: QLineEdit):
+        """浏览CSV文件"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择CSV文件",
+            "",
+            "CSV文件 (*.csv)"
+        )
+        if file_path:
+            line_edit.setText(file_path)
+
+    # 替换MainWindow类中的_on_csv_compare_clicked方法为以下代码
+
+    def _on_csv_compare_clicked(self):
+        """处理CSV对比按钮点击事件"""
+        csv1_path = self.csv_file1_path.text()
+        csv2_path = self.csv_file2_path.text()
+
+        if not csv1_path or not csv2_path:
+            QMessageBox.warning(self, "警告", "请选择两个CSV文件！")
+            return
+
+        if not os.path.exists(csv1_path):
+            QMessageBox.warning(self, "警告", f"CSV文件不存在: {csv1_path}")
+            return
+
+        if not os.path.exists(csv2_path):
+            QMessageBox.warning(self, "警告", f"CSV文件不存在: {csv2_path}")
+            return
+
+        # 执行对比
+        success, result = self.csv_comparison_widget.compare_csvs(csv1_path, csv2_path)
+
+        # 显示结果
+        if success:
+            stats_info = result
+            psnr_stats = stats_info['psnr']
+            ssim_stats = stats_info['ssim']
+
+            log_message = (
+                f"对比完成: {os.path.basename(csv1_path)} vs {os.path.basename(csv2_path)}\n"
+                f"PSNR差值统计:\n"
+                f"  均值: {psnr_stats['mean']:.4f}\n"
+                f"  标准差: {psnr_stats['std']:.4f}\n"
+                f"  方差: {psnr_stats['var']:.4f}\n"
+                f"  最大值: {psnr_stats['max']:.4f}\n"
+                f"SSIM差值统计:\n"
+                f"  均值: {ssim_stats['mean']:.4f}\n"
+                f"  标准差: {ssim_stats['std']:.4f}\n"
+                f"  方差: {ssim_stats['var']:.4f}\n"
+                f"  最大值: {ssim_stats['max']:.4f}"
+            )
+            self.csv_log.append(log_message)
+        else:
+            QMessageBox.warning(self, "错误", result)
 
     # 在MainWindow类中添加以下方法：
     def _on_split_slider_changed(self, value):
@@ -667,6 +1137,34 @@ class MainWindow(QMainWindow):
             self.single_log.append(f"SSIM: {result['SSIM']:.4f}")
         else:
             QMessageBox.warning(self, "错误", "图像对比失败，请检查图像文件是否有效且尺寸一致！")
+
+    # 在MainWindow类中添加以下新方法
+
+    # 替换MainWindow类中的_on_csv_clear_clicked方法为以下代码
+
+    def _on_csv_clear_clicked(self):
+        """处理清空对比按钮点击事件"""
+        # 清空文件路径
+        self.csv_file1_path.clear()
+        self.csv_file2_path.clear()
+
+        # 重新初始化图表，确保完全清空所有状态
+        self.csv_comparison_widget.ax.clear()
+        self.csv_comparison_widget.ax2.clear()
+
+        # 重新设置图表的基本属性
+        self.csv_comparison_widget.ax.set_xlabel('图像索引')
+        self.csv_comparison_widget.ax.set_ylabel('PSNR值', color='blue')
+        self.csv_comparison_widget.ax.set_title('CSV文件对比: PSNR 和 SSIM')
+        self.csv_comparison_widget.ax.grid(True, linestyle='--', alpha=0.7)
+
+        # 刷新画布
+        self.csv_comparison_widget.canvas.draw()
+
+        # 清空日志
+        self.csv_log.clear()
+
+
 
     def _create_split_tab(self):
         widget = QWidget()
@@ -714,20 +1212,7 @@ class MainWindow(QMainWindow):
 
         # Button
         self.split_button = QPushButton("开始分块")
-        self.split_button.setStyleSheet("""
-                    QPushButton {
-                padding: 6px 12px;
-                font-size: 12px;
-                font-weight: bold;
-                border: none;
-                border-radius: 8px;
-                color: white;
-                min-width: 40px;
-                min-height: 20px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #3498db, stop:1 #2980b9);
-            }
-                        """)
+        self.split_button.setStyleSheet(StyleManager.get_button_style())
         self.split_button.clicked.connect(self._on_split_clicked)
         layout.addWidget(self.split_button)
 
@@ -777,20 +1262,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(group_progress)
 
         self.merge_button = QPushButton("开始整合")
-        self.merge_button.setStyleSheet("""
-                    QPushButton {
-                padding: 6px 12px;
-                font-size: 12px;
-                font-weight: bold;
-                border: none;
-                border-radius: 8px;
-                color: white;
-                min-width: 40px;
-                min-height: 20px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #3498db, stop:1 #2980b9);
-            }
-                        """)
+        self.merge_button.setStyleSheet(StyleManager.get_button_style())
         self.merge_button.clicked.connect(self._on_merge_clicked)
         layout.addWidget(self.merge_button)
 
@@ -833,20 +1305,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(group_progress)
 
         self.eval_button = QPushButton("开始评估")
-        self.eval_button.setStyleSheet("""
-                    QPushButton {
-                padding: 6px 12px;
-                font-size: 12px;
-                font-weight: bold;
-                border: none;
-                border-radius: 8px;
-                color: white;
-                min-width: 40px;
-                min-height: 20px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #3498db, stop:1 #2980b9);
-            }
-                        """)
+        self.eval_button.setStyleSheet(StyleManager.get_button_style())
         self.eval_button.clicked.connect(self._on_eval_clicked)
         layout.addWidget(self.eval_button)
 
@@ -939,6 +1398,47 @@ class MainWindow(QMainWindow):
         self.merge_progress.setValue(0)
         self.eval_progress.setValue(0)
         QMessageBox.information(self, "任务完成", message)
+
+    # 在 _on_task_finished 方法之后添加以下代码
+
+    def _on_resizer_run(self):
+        src = self.resizer_src_dir.text()
+        dst = self.resizer_dst_dir.text()
+        if not src or not dst:
+            QMessageBox.warning(self, "警告", "请先设置输入/输出目录")
+            return
+
+        if not os.path.exists(src):
+            QMessageBox.warning(self, "警告", "输入目录不存在")
+            return
+
+        self.resizer_run_btn.setEnabled(False)
+        self.resizer_stop_btn.setEnabled(True)
+        self.resizer_progress.setValue(0)
+
+        self.resizer_worker = ResizerWorker(
+            src, dst,
+            self.resizer_algo_cb.currentText(),
+            self.resizer_ratio_sb.value(),
+            self.resizer_fmt_cb.currentText()
+        )
+
+        self.resizer_worker.progress_updated.connect(self.resizer_progress.setValue)
+        self.resizer_worker.log_updated.connect(self.resizer_log.append)
+        self.resizer_worker.finished_signal.connect(self._on_resizer_finished)
+        self.resizer_worker.start()
+
+    def _on_resizer_stop(self):
+        if hasattr(self, 'resizer_worker') and self.resizer_worker.isRunning():
+            self.resizer_worker.stop()
+            self.resizer_worker.wait()
+        self._on_resizer_finished(True, "操作已停止")
+
+    def _on_resizer_finished(self, success: bool, message: str):
+        self.resizer_run_btn.setEnabled(True)
+        self.resizer_stop_btn.setEnabled(False)
+        self.resizer_progress.setValue(0)
+        QMessageBox.information(self, "批量缩放完成", message)
 
 
 # ======================
