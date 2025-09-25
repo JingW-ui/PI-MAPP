@@ -13,11 +13,207 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                QTableWidget, QTableWidgetItem, QMessageBox, QComboBox,
                                QCheckBox, QListWidget, QSizePolicy, QSlider)
 from PySide6.QtCore import Qt, QThread, Signal, QSize, QRect
-from PySide6.QtGui import QFont, QPixmap, QPainter
+from PySide6.QtGui import QFont, QPixmap, QPainter, QIcon
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import pandas as pd
+
+
+# 在CSVComparisonWidget类之后添加以下代码
+
+class CSVMetricsVisualizationWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.layout = QVBoxLayout(self)
+
+        # CSV文件选择区域
+        csv_group = QGroupBox("CSV文件选择")
+        csv_layout = QHBoxLayout(csv_group)
+        self.csv_file_path = QLineEdit()
+        self.csv_file_browse = QPushButton("浏览...")
+        self.csv_file_browse.clicked.connect(self._browse_csv_file)
+        csv_layout.addWidget(QLabel("CSV文件:"))
+        csv_layout.addWidget(self.csv_file_path)
+        csv_layout.addWidget(self.csv_file_browse)
+        self.layout.addWidget(csv_group)
+
+        # 指标选择区域
+        metrics_group = QGroupBox("可视化指标选择")
+        metrics_layout = QHBoxLayout(metrics_group)
+        self.psnr_checkbox = QCheckBox("PSNR")
+        self.ssim_checkbox = QCheckBox("SSIM")
+        self.lpips_checkbox = QCheckBox("LPIPS")
+        self.psnr_checkbox.setChecked(True)
+        self.ssim_checkbox.setChecked(True)
+        self.lpips_checkbox.setChecked(True)
+        metrics_layout.addWidget(self.psnr_checkbox)
+        metrics_layout.addWidget(self.ssim_checkbox)
+        metrics_layout.addWidget(self.lpips_checkbox)
+        self.layout.addWidget(metrics_group)
+
+        # 平滑度控制
+        smooth_group = QGroupBox("曲线平滑度")
+        smooth_layout = QHBoxLayout(smooth_group)
+        smooth_layout.addWidget(QLabel("窗口大小:"))
+        self.smooth_window_spinbox = QSpinBox()
+        self.smooth_window_spinbox.setRange(1, 50)
+        self.smooth_window_spinbox.setValue(5)
+        smooth_layout.addWidget(self.smooth_window_spinbox)
+        self.smooth_button = QPushButton("应用平滑")
+        self.smooth_button.clicked.connect(self._apply_smoothing)
+        smooth_layout.addWidget(self.smooth_button)
+        self.layout.addWidget(smooth_group)
+
+        # 创建matplotlib图形
+        self.figure, self.ax = plt.subplots(figsize=(10, 6))
+        self.canvas = FigureCanvas(self.figure)
+        self.layout.addWidget(self.canvas)
+
+        # 操作按钮
+        button_layout = QHBoxLayout()
+        self.visualize_button = QPushButton("可视化")
+        self.visualize_button.setStyleSheet(StyleManager.get_button_style())
+        self.visualize_button.clicked.connect(self._visualize_csv)
+        self.clear_button = QPushButton("清空")
+        self.clear_button.setStyleSheet(StyleManager.get_button_style())
+        self.clear_button.clicked.connect(self._clear_plot)
+        button_layout.addWidget(self.visualize_button)
+        button_layout.addWidget(self.clear_button)
+        self.layout.addLayout(button_layout)
+
+        # 日志区域
+        self.log_text = QTextEdit()
+        self.log_text.setMaximumHeight(80)
+        self.layout.addWidget(self.log_text)
+
+        # 设置中文字体支持
+        plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans', 'Arial Unicode MS', 'sans-serif']
+        plt.rcParams['axes.unicode_minus'] = False
+
+        self.df = None  # 存储CSV数据
+        self.setLayout(self.layout)
+
+    def _browse_csv_file(self):
+        """浏览CSV文件"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择CSV文件",
+            "",
+            "CSV文件 (*.csv)"
+        )
+        if file_path:
+            self.csv_file_path.setText(file_path)
+
+    def _apply_smoothing(self):
+        """应用平滑处理"""
+        if self.df is not None:
+            self._visualize_csv()
+        else:
+            self.log_text.append("请先加载并可视化数据")
+
+    def _clear_plot(self):
+        """清空图表"""
+        self.ax.clear()
+        self.canvas.draw()
+        self.log_text.clear()
+        self.df = None
+
+    def _moving_average(self, data, window_size):
+        """计算移动平均"""
+        if window_size <= 1:
+            return data
+        return pd.Series(data).rolling(window=window_size, center=True, min_periods=1).mean().values
+
+    def _visualize_csv(self):
+        """可视化CSV数据"""
+        csv_path = self.csv_file_path.text()
+        if not csv_path:
+            self.log_text.append("请先选择CSV文件")
+            return
+
+        if not os.path.exists(csv_path):
+            self.log_text.append(f"文件不存在: {csv_path}")
+            return
+
+        try:
+            # 读取CSV文件
+            self.df = pd.read_csv(csv_path)
+
+            # 检查必要列
+            required_columns = ['Image']
+            missing_columns = [col for col in required_columns if col not in self.df.columns]
+            if missing_columns:
+                self.log_text.append(f"缺少必要列: {missing_columns}")
+                return
+
+            # 检查可选指标列
+            metrics_columns = []
+            if self.psnr_checkbox.isChecked() and 'PSNR' in self.df.columns:
+                metrics_columns.append('PSNR')
+            if self.ssim_checkbox.isChecked() and 'SSIM' in self.df.columns:
+                metrics_columns.append('SSIM')
+            if self.lpips_checkbox.isChecked() and 'LPIPS' in self.df.columns:
+                metrics_columns.append('LPIPS')
+
+            if not metrics_columns:
+                self.log_text.append("请选择至少一个有效的指标进行可视化")
+                return
+
+            # 清除之前的图形
+            self.ax.clear()
+
+            # 准备数据
+            x = range(len(self.df))
+            window_size = self.smooth_window_spinbox.value()
+
+            # 为每个指标绘制曲线
+            colors = ['blue', 'red', 'green', 'orange', 'purple']
+            for i, metric in enumerate(metrics_columns):
+                if metric in self.df.columns:
+                    # 获取数据并应用平滑
+                    data = self.df[metric].values
+                    if window_size > 1:
+                        smoothed_data = self._moving_average(data, window_size)
+                        self.ax.plot(x, smoothed_data,
+                                     marker='o',
+                                     linestyle='-',
+                                     label=metric,
+                                     color=colors[i % len(colors)],
+                                     markersize=3)
+                    else:
+                        self.ax.plot(x, data,
+                                     marker='o',
+                                     linestyle='-',
+                                     label=metric,
+                                     color=colors[i % len(colors)],
+                                     markersize=3)
+
+            # 设置图表属性
+            self.ax.set_xlabel('图像索引')
+            self.ax.set_ylabel('指标值')
+            self.ax.set_title('CSV指标可视化')
+            self.ax.legend()
+            self.ax.grid(True, linestyle='--', alpha=0.7)
+
+            # 设置x轴标签
+            self.ax.set_xticks(x)
+            self.ax.set_xticklabels(self.df['Image'], rotation=45, ha='right')
+
+            # 调整布局
+            try:
+                self.figure.tight_layout()
+            except:
+                self.figure.subplots_adjust(bottom=0.2)
+
+            # 刷新画布
+            self.canvas.draw()
+
+            self.log_text.append(f"成功可视化 {csv_path}，共 {len(self.df)} 条记录")
+
+        except Exception as e:
+            self.log_text.append(f"可视化失败: {str(e)}")
+
 
 class CSVComparisonWidget(QWidget):
     def __init__(self, parent=None):
@@ -360,7 +556,11 @@ class StyleManager:
                 font-size: 10px;
                 color: #2c3e50;
             }
-
+            QTabBar::tab:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #d5dbdb, stop:1 #cacfd2);
+                    color: white;
+            }
             QTabBar::tab:selected {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #3498db, stop:1 #2980b9);
@@ -709,7 +909,7 @@ class WorkerThread(QThread):
     def _run_evaluate(self):
         pred_dir = self.kwargs.get("pred_dir")
         gt_dir = self.kwargs.get("gt_dir")
-        output_csv = self.kwargs.get("output_csv", "evaluation_results.csv")
+        output_csv = self.kwargs.get("output_csv", "evaluation_results_1.csv")
 
         image_extensions = [".png", ".jpg", ".jpeg", ".bmp"]
         pred_files = {f.stem: f for ext in image_extensions for f in Path(pred_dir).glob(f"*{ext}")}
@@ -812,7 +1012,7 @@ class ResizerWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("图像分块与整合工具 v1.0")
+        self.setWindowTitle("图像处理工具 v1.0")
         self.setGeometry(20, 50, 750, 800)
         self.setStyleSheet(StyleManager.get_main_stylesheet())
 
@@ -842,6 +1042,10 @@ class MainWindow(QMainWindow):
         # Tab 5: 图像缩放
         self.tab_resizer = self._create_resizer_tab()
         self.tabs.addTab(self.tab_resizer, "批量缩放")
+
+        # Tab 6: CSV可视化
+        self.tab_csv_visualization = self._create_csv_visualization_tab()
+        self.tabs.addTab(self.tab_csv_visualization, "CSV可视化")
 
         self.setCentralWidget(central_widget)
 
@@ -944,6 +1148,7 @@ class MainWindow(QMainWindow):
         # CSV对比日志
         self.csv_log = QTextEdit()
         self.csv_log.setMaximumHeight(120)
+        self.csv_log.textChanged.connect(lambda: self._scroll_to_bottom(self.csv_log))
         csv_comparison_layout.addWidget(self.csv_log)
         csv_comparison_layout.addLayout(button_layout)
 
@@ -954,7 +1159,11 @@ class MainWindow(QMainWindow):
 
         return widget
 
-        # 在 _create_single_eval_tab 方法之后添加以下代码
+
+    def _scroll_to_bottom(self, text_edit):
+        """滚动 QTextEdit 到最底部"""
+        scrollbar = text_edit.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
 
     def _create_resizer_tab(self):
         widget = QWidget()
@@ -971,7 +1180,7 @@ class MainWindow(QMainWindow):
 
         layout_algo.addWidget(QLabel("比例："))
         self.resizer_ratio_sb = QSpinBox()
-        self.resizer_ratio_sb.setRange(2, 8)
+        self.resizer_ratio_sb.setRange(1, 8)
         self.resizer_ratio_sb.setValue(2)
         self.resizer_ratio_sb.setSuffix("×")
         layout_algo.addWidget(self.resizer_ratio_sb)
@@ -1031,6 +1240,19 @@ class MainWindow(QMainWindow):
         button_layout.addWidget(self.resizer_run_btn)
         button_layout.addWidget(self.resizer_stop_btn)
         layout.addLayout(button_layout)
+
+        widget.setLayout(layout)
+        return widget
+
+        # 在 _create_resizer_tab 方法之后添加以下代码
+
+    def _create_csv_visualization_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # 创建CSV可视化控件
+        self.csv_visualization_widget = CSVMetricsVisualizationWidget()
+        layout.addWidget(self.csv_visualization_widget)
 
         widget.setLayout(layout)
         return widget
@@ -1151,6 +1373,7 @@ class MainWindow(QMainWindow):
         # 重新初始化图表，确保完全清空所有状态
         self.csv_comparison_widget.ax.clear()
         self.csv_comparison_widget.ax2.clear()
+        self.csv_comparison_widget.ax3.clear()
 
         # 重新设置图表的基本属性
         self.csv_comparison_widget.ax.set_xlabel('图像索引')
@@ -1290,7 +1513,7 @@ class MainWindow(QMainWindow):
 
         layout_input.addWidget(QLabel("评估结果CSV:"), 2, 0)
         self.eval_output_csv = QLineEdit()
-        self.eval_output_csv.setText("evaluation_results.csv")
+        self.eval_output_csv.setText("evaluation_results_1.csv")
         layout_input.addWidget(self.eval_output_csv, 2, 1)
 
         layout.addWidget(group_input)
@@ -1447,6 +1670,7 @@ class MainWindow(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon("app.ico"))
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
