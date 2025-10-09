@@ -12,7 +12,7 @@ class SubjectRankingApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Academic Ranking Visualization System")
-        self.setMinimumSize(1600, 850)
+        self.setMinimumSize(1400, 900)
 
         # 欧美简约风格配色
         self.colors = {
@@ -229,10 +229,7 @@ class SubjectRankingApp(QMainWindow):
         filter_layout.addWidget(QLabel("Grade:"))
         self.grade_combo = QComboBox()
         self.grade_combo.addItem("All Grades")
-        self.grade_combo.addItems([
-            "A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-",
-            "B及以上", "A-及以上"
-        ])
+        self.grade_combo.addItems(["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-"])
         self.grade_combo.currentTextChanged.connect(self.update_display)
         filter_layout.addWidget(self.grade_combo)
 
@@ -243,13 +240,16 @@ class SubjectRankingApp(QMainWindow):
         # 获取所有非空的省份数据
         provinces = self.data["省份"].dropna().unique()
         self.province_combo.addItems(sorted(provinces))
-        self.province_combo.currentTextChanged.connect(self.on_province_changed)
+        self.province_combo.currentTextChanged.connect(self.update_display)
         filter_layout.addWidget(self.province_combo)
 
         # 城市筛选
         filter_layout.addWidget(QLabel("City:"))
         self.city_combo = QComboBox()
         self.city_combo.addItem("All Cities")
+        # 获取所有非空的城市数据
+        cities = self.data["城市"].dropna().unique()
+        self.city_combo.addItems(sorted(cities))
         self.city_combo.currentTextChanged.connect(self.update_display)
         filter_layout.addWidget(self.city_combo)
 
@@ -429,8 +429,6 @@ class SubjectRankingApp(QMainWindow):
 
     # 在 on_category_changed 方法中添加省份和城市的联动更新:
 
-    # 修改 on_category_changed 方法，更新省份和城市下拉框的调用：
-
     def on_category_changed(self):
         """当学科门类变化时更新学科列表"""
         category = self.category_combo.currentText()
@@ -457,8 +455,6 @@ class SubjectRankingApp(QMainWindow):
         self.update_province_city_combos()
 
         self.update_display()
-
-    # 修改 update_province_city_combos 方法，实现省份城市联动：
 
     def update_province_city_combos(self):
         """更新省份和城市下拉框选项"""
@@ -499,75 +495,14 @@ class SubjectRankingApp(QMainWindow):
             self.province_combo.setCurrentIndex(province_index)
         self.province_combo.blockSignals(False)
 
-        # 更新城市下拉框 - 根据选中的省份筛选城市
+        # 更新城市下拉框
         self.city_combo.blockSignals(True)  # 防止触发更新事件
         self.city_combo.clear()
         self.city_combo.addItem("All Cities")
-
-        # 如果选择了特定省份，则只显示该省份的城市
-        if current_province != "All Provinces":
-            city_data = temp_data[temp_data["省份"] == current_province]
-            cities = city_data["城市"].dropna().unique()
-        else:
-            cities = temp_data["城市"].dropna().unique()
-
+        cities = temp_data["城市"].dropna().unique()
         self.city_combo.addItems(sorted(cities))
 
         # 恢复之前的选择
-        city_index = self.city_combo.findText(current_city)
-        if city_index >= 0:
-            self.city_combo.setCurrentIndex(city_index)
-        self.city_combo.blockSignals(False)
-
-    def on_province_changed(self):
-        """当省份选择变化时更新城市列表"""
-        # 更新城市下拉框
-        self.update_cities_for_province()
-        # 更新显示
-        self.update_display()
-
-    def update_cities_for_province(self):
-        """根据选中的省份更新城市下拉框"""
-        selected_province = self.province_combo.currentText()
-
-        # 保存当前城市选择
-        current_city = self.city_combo.currentText()
-
-        # 获取当前筛选条件下的数据
-        temp_data = self.data.copy()
-
-        # 应用当前筛选条件
-        category = self.category_combo.currentText()
-        subject = self.subject_combo.currentText()
-        grade = self.grade_combo.currentText()
-        search_text = self.search_input.text().lower()
-
-        if category != "All Categories":
-            temp_data = temp_data[temp_data["学科门类"] == category]
-        if subject != "All Subjects":
-            temp_data = temp_data[temp_data["学科名称"] == subject]
-        if grade != "All Grades":
-            temp_data = temp_data[temp_data["评估等级"] == grade]
-        if search_text:
-            temp_data = temp_data[
-                temp_data["学校名称"].str.lower().str.contains(search_text)
-            ]
-
-        # 更新城市下拉框
-        self.city_combo.blockSignals(True)
-        self.city_combo.clear()
-        self.city_combo.addItem("All Cities")
-
-        # 如果选择了特定省份，则只显示该省份的城市
-        if selected_province != "All Provinces":
-            city_data = temp_data[temp_data["省份"] == selected_province]
-            cities = city_data["城市"].dropna().unique()
-        else:
-            cities = temp_data["城市"].dropna().unique()
-
-        self.city_combo.addItems(sorted(cities))
-
-        # 恢复之前的选择（如果该城市仍在列表中）
         city_index = self.city_combo.findText(current_city)
         if city_index >= 0:
             self.city_combo.setCurrentIndex(city_index)
@@ -634,18 +569,7 @@ class SubjectRankingApp(QMainWindow):
         if subject != "All Subjects":
             self.filtered_data = self.filtered_data[self.filtered_data["学科名称"] == subject]
         if grade != "All Grades":
-            # 处理扩展的等级筛选条件
-            if grade == "B及以上":
-                # 定义等级顺序，从高到低
-                grade_order = ["A+", "A", "A-", "B+", "B"]
-                self.filtered_data = self.filtered_data[self.filtered_data["评估等级"].isin(grade_order)]
-            elif grade == "A-及以上":
-                # 定义等级顺序，从高到低
-                grade_order = ["A+", "A", "A-"]
-                self.filtered_data = self.filtered_data[self.filtered_data["评估等级"].isin(grade_order)]
-            else:
-                # 原有的单一等级筛选
-                self.filtered_data = self.filtered_data[self.filtered_data["评估等级"] == grade]
+            self.filtered_data = self.filtered_data[self.filtered_data["评估等级"] == grade]
         if search_text:
             self.filtered_data = self.filtered_data[
                 self.filtered_data["学校名称"].str.lower().str.contains(search_text)
@@ -702,7 +626,7 @@ class SubjectRankingApp(QMainWindow):
         # 更新统计信息
         total_count = len(self.filtered_data)
         total_percentage = (total_count / len(self.data)) * 100 if len(self.data) > 0 else 0
-        self.stats_label.setText(f"Showing {total_count} records ({total_percentage:.3f}% of total)")
+        self.stats_label.setText(f"Showing {total_count} records ({total_percentage:.1f}% of total)")
 
         # 更新图表
         active_button = self.chart_buttons.checkedButton()
