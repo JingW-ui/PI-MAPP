@@ -291,8 +291,8 @@ class SubjectRankingApp(QMainWindow):
         self.table_widget = QTableWidget()
         self.table_widget.setColumnCount(6)
         self.table_widget.setHorizontalHeaderLabels([
-            "Subject Code", "Subject Name", "Category",
-            "University Code", "University Name", "Grade"
+            "Category", "Subject Name", "Subject Code",
+            "University Name", "University Code", "Grade"
         ])
         self.table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table_widget.setAlternatingRowColors(True)
