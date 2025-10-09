@@ -1,7 +1,8 @@
-```markdown
+
 # 学科排名可视化系统
 
 > 基于 PySide6 的交互式学科评估数据浏览器，支持 5570 条学科排名记录的动态筛选、搜索与可视化。
+> 本来最好的方式是做一个网站的 但是要服务器 还是做本地的UI 方便一点！
 
 ---
 
@@ -25,9 +26,7 @@ pip install PySide6 pandas
 ```
 
 ### 2. 准备数据
-将同名 CSV 文件（含列 `学科代码,学科名称,学科门类,学校代码,学校名称,评估等级`）放在项目根目录即可自动加载；  
-若文件名不同，修改 `load_data()` 内路径即可。
-
+数据已爬取完成 不必担心！
 ### 3. 启动应用
 ```bash
 python subject_ranking_app.py
@@ -63,4 +62,4 @@ python subject_ranking_app.py
 ---
 
 ## 📄 许可证
-MIT © 2024 Your Name
+MIT © 2024 junior6666
