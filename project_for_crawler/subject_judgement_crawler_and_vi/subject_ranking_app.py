@@ -201,8 +201,21 @@ class SubjectRankingApp(QMainWindow):
             background-color: transparent;  /* 设置背景透明 */
             border: none;  /* 移除边框 */
         """)
-        main_layout.addWidget(title_label)
 
+        title_layout = QVBoxLayout()
+        title_layout.addWidget(title_label)
+
+        # 添加数据来源链接
+        data_source_label = QLabel(
+            '<a href="https://www.cdgdc.edu.cn/dslxkpgjggb/" style="text-decoration: none; color: #3498DB; font-size: 12px;">数据来源: 中国学位与研究生教育信息网</a>')
+        data_source_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        data_source_label.setOpenExternalLinks(True)
+        data_source_label.setStyleSheet("QLabel { background-color: transparent; border: none; }")
+        title_layout.addWidget(data_source_label)
+
+        title_widget = QWidget()
+        title_widget.setLayout(title_layout)
+        main_layout.addWidget(title_widget)
         # 筛选区域
         filter_group = QGroupBox("FILTER CRITERIA")
         filter_layout = QHBoxLayout()
@@ -940,24 +953,19 @@ class SubjectRankingApp(QMainWindow):
         msg.setText(stats_text)
         msg.exec()
 
-
 def main():
     app = QApplication(sys.argv)
 
     # 设置应用程序样式
     app.setStyle('Fusion')
-
     # 设置应用程序字体
     font = QFont("Segoe UI", 10)
     app.setFont(font)
     app.setWindowIcon(QIcon("app.ico"))
-
     # 创建并显示主窗口
     window = SubjectRankingApp()
     window.show()
-
     sys.exit(app.exec())
-
 
 if __name__ == "__main__":
     main()
