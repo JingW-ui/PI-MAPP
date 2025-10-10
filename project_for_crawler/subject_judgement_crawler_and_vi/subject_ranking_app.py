@@ -118,68 +118,67 @@ class SubjectRankingApp(QMainWindow):
         self.data = self.create_sample_data()
         self.filtered_data = self.data.copy()
 
+        self.c9_universities = {
+            "清华大学", "北京大学", "复旦大学", "上海交通大学",
+            "浙江大学", "中国科学技术大学", "南京大学", "哈尔滨工业大学", "西安交通大学"
+        }
+
+        self._985_universities = {
+            "清华大学", "北京大学", "中国人民大学", "北京航空航天大学", "北京理工大学",
+            "北京师范大学", "中国农业大学", "中央民族大学", "南开大学", "天津大学",
+            "大连理工大学", "东北大学", "吉林大学", "哈尔滨工业大学", "复旦大学",
+            "同济大学", "上海交通大学", "华东师范大学", "南京大学", "东南大学",
+            "浙江大学", "中国科学技术大学", "厦门大学", "山东大学", "中国海洋大学",
+            "武汉大学", "华中科技大学", "湖南大学", "中南大学", "中山大学",
+            "华南理工大学", "四川大学", "电子科技大学", "重庆大学", "西安交通大学",
+            "西北工业大学", "兰州大学", "西北农林科技大学", "国防科技大学"
+        }
+
+        self._211_universities = {
+                   # 以下仅列出非 985 的 77 所纯 211（2025 教育部版）
+                   "北京科技大学", "北京化工大学", "北京邮电大学", "北京林业大学", "北京中医药大学",
+                   "北京外国语大学", "中国传媒大学", "对外经济贸易大学", "中央财经大学", "中国政法大学",
+                   "华北电力大学", "中国矿业大学（北京）", "中国石油大学（北京）", "中国地质大学（北京）",
+                   "北京体育大学", "中央音乐学院", "北京工业大学", "北京交通大学", "北京联合大学",
+                   "天津医科大学", "河北工业大学", "太原理工大学", "内蒙古大学", "辽宁大学",
+                   "大连海事大学", "东北师范大学", "延边大学", "东北农业大学", "东北林业大学",
+                   "华东理工大学", "东华大学", "上海外国语大学", "上海财经大学", "上海大学",
+                   "上海科技大学", "苏州大学", "南京航空航天大学", "南京理工大学", "河海大学",
+                   "江南大学", "南京农业大学", "中国药科大学", "南京师范大学", "安徽大学",
+                   "合肥工业大学", "福州大学", "南昌大学", "中国石油大学（华东）", "郑州大学",
+                   "武汉理工大学", "中国地质大学（武汉）", "华中农业大学", "华中师范大学", "中南财经政法大学",
+                   "湖南师范大学", "暨南大学", "华南师范大学", "广西大学", "海南大学",
+                   "西南大学", "西南交通大学", "四川农业大学", "西南财经大学", "贵州大学",
+                   "云南大学", "西藏大学", "西北大学", "西安电子科技大学", "长安大学",
+                   "陕西师范大学", "青海大学", "宁夏大学", "新疆大学", "石河子大学"
+               }
+
         self.init_ui()
         self.init_animations()
 
+
     def create_sample_data(self):
         """创建示例数据"""
-        try:
-            # 强制将学科代码和学校代码作为字符串读取
-            data = pd.read_csv("学科评估结果_第四轮.csv", encoding="utf-8",
-                               dtype={"学科代码": str, "学校代码": str})
 
-            # 读取大学省份城市信息
-            try:
-                location_data = pd.read_csv("univ_province_city.csv", encoding="utf-8")
-                # 合并数据
-                data = pd.merge(data, location_data, left_on="学校名称", right_on="name", how="left")
-                # 重命名列
-                data = data.rename(columns={"province": "省份", "city": "城市"})
-                # 删除多余的name列
-                data = data.drop(columns=["name"])
-            except FileNotFoundError:
-                QMessageBox.warning(self, "文件未找到", "未找到univ_province_city.csv文件，将不显示地区信息")
-                # 添加空的省份和城市列
-                data["省份"] = ""
-                data["城市"] = ""
+        # 强力将学科代码和学校代码作为字符串读取
+        data = pd.read_csv("学科评估结果_第四轮.csv", encoding="utf-8",
+                           dtype={"学科代码": str, "学校代码": str})
 
-            required_columns = ["学科代码", "学科名称", "学科门类", "学校代码", "学校名称", "评估等级", "省份", "城市"]
-            if not all(col in data.columns for col in required_columns):
-                raise ValueError("CSV文件缺少必要的列")
-            return data
-        except FileNotFoundError:
-            QMessageBox.warning(self, "文件未找到", "未找到学科评估结果_第四轮.csv文件，将使用示例数据")
-            # 创建示例数据
-            subjects = ["计算机科学与技术", "软件工程", "电子信息工程", "机械工程", "土木工程",
-                        "金融学", "经济学", "工商管理", "法学", "临床医学"]
-            categories = ["工学", "理学", "经济学", "管理学", "法学", "医学"]
-            universities = ["清华大学", "北京大学", "浙江大学", "上海交通大学", "复旦大学",
-                            "南京大学", "中国科学技术大学", "哈尔滨工业大学", "西安交通大学", "华中科技大学"]
-            provinces = ["北京市", "上海市", "江苏省", "浙江省", "广东省", "湖北省"]
-            cities = ["北京市", "上海市", "南京市", "杭州市", "广州市", "武汉市"]
-            grades = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-"]
 
-            data = []
-            for i in range(200):
-                subject = random.choice(subjects)
-                category = "工学" if subject in ["计算机科学与技术", "软件工程", "电子信息工程", "机械工程",
-                                                 "土木工程"] else \
-                    "经济学" if subject in ["金融学", "经济学"] else \
-                        "管理学" if subject == "工商管理" else \
-                            "法学" if subject == "法学" else "医学"
+        location_data = pd.read_csv("univ_province_city.csv", encoding="utf-8")
+        # 合并数据
+        data = pd.merge(data, location_data, left_on="学校名称", right_on="name", how="left")
+        # 重命名列
+        data = data.rename(columns={"province": "省份", "city": "城市"})
+        # 删除多余的name列
+        data = data.drop(columns=["name"])
 
-                data.append({
-                    "学科代码": f"{random.randint(1000, 9999)}",
-                    "学科名称": subject,
-                    "学科门类": category,
-                    "学校代码": f"{random.randint(10000, 99999)}",
-                    "学校名称": random.choice(universities),
-                    "评估等级": random.choice(grades),
-                    "省份": random.choice(provinces),
-                    "城市": random.choice(cities)
-                })
 
-            return pd.DataFrame(data)
+        required_columns = ["学科代码", "学科名称", "学科门类", "学校代码", "学校名称", "评估等级", "省份", "城市"]
+        if not all(col in data.columns for col in required_columns):
+            raise ValueError("CSV文件缺少必要的列")
+        return data
+
 
     def init_ui(self):
         """初始化UI界面"""
@@ -670,7 +669,59 @@ class SubjectRankingApp(QMainWindow):
             self.table_widget.setItem(i, 0, QTableWidgetItem(row["学科门类"]))
             self.table_widget.setItem(i, 1, QTableWidgetItem(row["学科名称"]))
             self.table_widget.setItem(i, 2, QTableWidgetItem(str(row["学科代码"])))
-            self.table_widget.setItem(i, 3, QTableWidgetItem(row["学校名称"]))
+
+            # 学校名称保持默认样式
+            university_name = row["学校名称"]
+            # 创建标签widget
+            university_widget = QWidget()
+            university_layout = QHBoxLayout(university_widget)
+            university_layout.setContentsMargins(0, 0, 0, 0)
+            university_layout.setSpacing(3)
+
+            # 学校名称标签
+            name_label = QLabel(university_name)
+            name_label.setStyleSheet("color: #2C3E50; font-size: 10px;")
+            university_layout.addStretch()
+            university_layout.addWidget(name_label)
+
+            # 添加标签
+            if row["学校名称"] in self.c9_universities:
+                tag_label = QLabel("C9")
+                tag_label.setStyleSheet("""
+                    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #32CD32, stop:1 #228B22);
+                    color: white;
+                    font-size: 7px;
+                    font-weight: bold;
+                    padding: 2px 4px;
+                    border-radius: 3px;
+                """)
+                university_layout.addWidget(tag_label)
+            elif row["学校名称"] in self._985_universities:
+                tag_label = QLabel("985")
+                tag_label.setStyleSheet("""
+                    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1E90FF, stop:1 #4169E1);
+                    color: white;
+                    font-size: 7px;
+                    font-weight: bold;
+                    padding: 2px 4px;
+                    border-radius: 3px;
+                """)
+                university_layout.addWidget(tag_label)
+            elif row["学校名称"] in self._211_universities:
+                tag_label = QLabel("211")
+                tag_label.setStyleSheet("""
+                    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #9370DB, stop:1 #8A2BE2);
+                    color: white;
+                    font-size: 7px;
+                    font-weight: bold;
+                    padding: 2px 4px;
+                    border-radius: 3px;
+                """)
+                university_layout.addWidget(tag_label)
+
+            university_layout.addStretch()
+            self.table_widget.setCellWidget(i, 3, university_widget)
+
             self.table_widget.setItem(i, 4, QTableWidgetItem(str(row["学校代码"])))
 
             # 评估等级颜色

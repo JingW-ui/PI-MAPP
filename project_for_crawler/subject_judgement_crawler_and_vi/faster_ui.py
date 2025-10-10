@@ -123,63 +123,23 @@ class SubjectRankingApp(QMainWindow):
 
     def create_sample_data(self):
         """创建示例数据"""
-        try:
-            # 强制将学科代码和学校代码作为字符串读取
-            data = pd.read_csv("学科评估结果_第四轮.csv", encoding="utf-8",
-                               dtype={"学科代码": str, "学校代码": str})
 
-            # 读取大学省份城市信息
-            try:
-                location_data = pd.read_csv("univ_province_city.csv", encoding="utf-8")
-                # 合并数据
-                data = pd.merge(data, location_data, left_on="学校名称", right_on="name", how="left")
-                # 重命名列
-                data = data.rename(columns={"province": "省份", "city": "城市"})
-                # 删除多余的name列
-                data = data.drop(columns=["name"])
-            except FileNotFoundError:
-                QMessageBox.warning(self, "文件未找到", "未找到univ_province_city.csv文件，将不显示地区信息")
-                # 添加空的省份和城市列
-                data["省份"] = ""
-                data["城市"] = ""
+        # 强制将学科代码和学校代码作为字符串读取
+        data = pd.read_csv("学科评估结果_第四轮.csv", encoding="utf-8",
+                           dtype={"学科代码": str, "学校代码": str})
 
-            required_columns = ["学科代码", "学科名称", "学科门类", "学校代码", "学校名称", "评估等级", "省份", "城市"]
-            if not all(col in data.columns for col in required_columns):
-                raise ValueError("CSV文件缺少必要的列")
-            return data
-        except FileNotFoundError:
-            QMessageBox.warning(self, "文件未找到", "未找到学科评估结果_第四轮.csv文件，将使用示例数据")
-            # 创建示例数据
-            subjects = ["计算机科学与技术", "软件工程", "电子信息工程", "机械工程", "土木工程",
-                        "金融学", "经济学", "工商管理", "法学", "临床医学"]
-            categories = ["工学", "理学", "经济学", "管理学", "法学", "医学"]
-            universities = ["清华大学", "北京大学", "浙江大学", "上海交通大学", "复旦大学",
-                            "南京大学", "中国科学技术大学", "哈尔滨工业大学", "西安交通大学", "华中科技大学"]
-            provinces = ["北京市", "上海市", "江苏省", "浙江省", "广东省", "湖北省"]
-            cities = ["北京市", "上海市", "南京市", "杭州市", "广州市", "武汉市"]
-            grades = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-"]
+        location_data = pd.read_csv("univ_province_city.csv", encoding="utf-8")
+        # 合并数据
+        data = pd.merge(data, location_data, left_on="学校名称", right_on="name", how="left")
+        # 重命名列
+        data = data.rename(columns={"province": "省份", "city": "城市"})
+        # 删除多余的name列
+        data = data.drop(columns=["name"])
 
-            data = []
-            for i in range(200):
-                subject = random.choice(subjects)
-                category = "工学" if subject in ["计算机科学与技术", "软件工程", "电子信息工程", "机械工程",
-                                                 "土木工程"] else \
-                    "经济学" if subject in ["金融学", "经济学"] else \
-                        "管理学" if subject == "工商管理" else \
-                            "法学" if subject == "法学" else "医学"
-
-                data.append({
-                    "学科代码": f"{random.randint(1000, 9999)}",
-                    "学科名称": subject,
-                    "学科门类": category,
-                    "学校代码": f"{random.randint(10000, 99999)}",
-                    "学校名称": random.choice(universities),
-                    "评估等级": random.choice(grades),
-                    "省份": random.choice(provinces),
-                    "城市": random.choice(cities)
-                })
-
-            return pd.DataFrame(data)
+        required_columns = ["学科代码", "学科名称", "学科门类", "学校代码", "学校名称", "评估等级", "省份", "城市"]
+        if not all(col in data.columns for col in required_columns):
+            raise ValueError("CSV文件缺少必要的列")
+        return data
 
     def init_ui(self):
         """初始化UI界面"""
