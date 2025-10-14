@@ -160,7 +160,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("图像对比展示工具 - 人工路径设定版")
-        self.setGeometry(100, 100, 1500, 800)
+        self.setGeometry(100, 100, 1300, 800)
 
         # 中央部件
         central_widget = QWidget()

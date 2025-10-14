@@ -2254,7 +2254,6 @@ class MainWindow(QMainWindow):
         self.sr_progress.setValue(0)
         QMessageBox.information(self, "批量超分完成", message)
 
-
 # ======================
 # 程序入口
 # ======================
