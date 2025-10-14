@@ -1,3 +1,4 @@
+import subprocess
 import sys
 import os
 import cv2
@@ -11,9 +12,9 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                QGridLayout, QLabel, QLineEdit, QPushButton, QGroupBox,
                                QSpinBox, QProgressBar, QTextEdit, QFileDialog, QTabWidget,
                                QTableWidget, QTableWidgetItem, QMessageBox, QComboBox,
-                               QCheckBox, QListWidget, QSizePolicy, QSlider)
-from PySide6.QtCore import Qt, QThread, Signal, QSize, QRect
-from PySide6.QtGui import QFont, QPixmap, QPainter, QIcon
+                               QCheckBox, QListWidget, QSizePolicy, QSlider, QScrollArea, QDoubleSpinBox)
+from PySide6.QtCore import Qt, QThread, Signal, QSize, QRect, QPoint
+from PySide6.QtGui import QFont, QPixmap, QPainter, QIcon, QImage
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -58,7 +59,7 @@ class CSVMetricsVisualizationWidget(QWidget):
         smooth_layout.addWidget(QLabel("窗口大小:"))
         self.smooth_window_spinbox = QSpinBox()
         self.smooth_window_spinbox.setRange(1, 50)
-        self.smooth_window_spinbox.setValue(5)
+        self.smooth_window_spinbox.setValue(1)
         smooth_layout.addWidget(self.smooth_window_spinbox)
         self.smooth_button = QPushButton("应用平滑")
         self.smooth_button.clicked.connect(self._apply_smoothing)
@@ -168,26 +169,50 @@ class CSVMetricsVisualizationWidget(QWidget):
             window_size = self.smooth_window_spinbox.value()
 
             # 为每个指标绘制曲线
-            colors = ['blue', 'red', 'green', 'orange', 'purple']
+            colors = ['blue', 'red']
+            stats_info = {}  # 用于存储统计信息
+
+            # 为每个指标定义固定颜色
+            metric_colors = {
+                'PSNR': 'blue',
+                'SSIM': 'red',
+                'LPIPS': 'green'
+            }
+
             for i, metric in enumerate(metrics_columns):
                 if metric in self.df.columns:
                     # 获取数据并应用平滑
                     data = self.df[metric].values
+                    color = metric_colors.get(metric, colors[i % len(colors)])  # 优先使用固定颜色
+
                     if window_size > 1:
                         smoothed_data = self._moving_average(data, window_size)
                         self.ax.plot(x, smoothed_data,
                                      marker='o',
                                      linestyle='-',
                                      label=metric,
-                                     color=colors[i % len(colors)],
+                                     color=color,
                                      markersize=3)
+                        # 保存平滑后的数据用于统计
+                        plot_data = smoothed_data
                     else:
                         self.ax.plot(x, data,
                                      marker='o',
                                      linestyle='-',
                                      label=metric,
-                                     color=colors[i % len(colors)],
+                                     color=color,
                                      markersize=3)
+                        # 保存原始数据用于统计
+                        plot_data = data
+
+                    # 计算统计信息
+                    stats_info[metric] = {
+                        'mean': np.mean(plot_data),
+                        'max': np.max(plot_data),
+                        'min': np.min(plot_data),
+                        'max_idx': np.argmax(plot_data),
+                        'min_idx': np.argmin(plot_data)
+                    }
 
             # 设置图表属性
             self.ax.set_xlabel('图像索引')
@@ -200,16 +225,26 @@ class CSVMetricsVisualizationWidget(QWidget):
             self.ax.set_xticks(x)
             self.ax.set_xticklabels(self.df['Image'], rotation=45, ha='right')
 
-            # 调整布局
-            try:
-                self.figure.tight_layout()
-            except:
-                self.figure.subplots_adjust(bottom=0.2)
+            # 调整布局，避免警告
+            self.figure.subplots_adjust(bottom=0.2, right=0.95, left=0.1)
 
             # 刷新画布
             self.canvas.draw()
 
-            self.log_text.append(f"成功可视化 {csv_path}，共 {len(self.df)} 条记录")
+            # 在日志中显示统计信息
+            log_message = f"成功可视化 {csv_path}，共 {len(self.df)} 条记录\n"
+            for metric in metrics_columns:
+                if metric in stats_info:
+                    stat = stats_info[metric]
+                    # 获取对应的图像名称
+                    max_image_name = self.df['Image'].iloc[stat['max_idx']] if stat['max_idx'] < len(self.df) else "未知"
+                    min_image_name = self.df['Image'].iloc[stat['min_idx']] if stat['min_idx'] < len(self.df) else "未知"
+
+                    log_message += (f"{metric} - 均值: {stat['mean']:.4f}, "
+                                    f"最大值: {stat['max']:.4f} (图像: {max_image_name}), "
+                                    f"最小值: {stat['min']:.4f} (图像: {min_image_name})\n")
+
+            self.log_text.append(log_message.strip())
 
         except Exception as e:
             self.log_text.append(f"可视化失败: {str(e)}")
@@ -307,7 +342,7 @@ class CSVComparisonWidget(QWidget):
             # 创建散点图
             x = range(len(merged_df))
             lines = []
-            colors = ['blue', 'red', 'green']  # 为不同指标设置不同颜色
+            colors = ['blue', 'red']  # 为不同指标设置不同颜色
             markers = ['o', 's', '^']  # 为不同指标设置不同标记
 
             for i, (metric, ax) in enumerate(zip(metrics, axes)):
@@ -366,7 +401,17 @@ class ImageComparisonWidget(QWidget):
         self.gt_pixmap = None  # 真值图
         self.pred_pixmap = None  # 处理图
         self.split_ratio = 0.5  # 分割比例，默认在中间
+        self.scale_factor = 1.0  # 缩放因子
         self.setMinimumSize(400, 300)
+
+        # 添加拖拽相关属性
+        self.dragging = False  # 是否正在拖拽
+        self.drag_start_pos = None  # 拖拽起始位置
+        self.image_offset = QPoint(0, 0)  # 图片偏移量
+        self.prev_image_offset = QPoint(0, 0)  # 上一次的图片偏移量
+
+        # 启用鼠标跟踪以支持滚轮事件
+        self.setMouseTracking(True)
 
     def set_images(self, gt_image_path, pred_image_path):
         """设置要对比的两张图片"""
@@ -374,12 +419,63 @@ class ImageComparisonWidget(QWidget):
             self.gt_pixmap = QPixmap(gt_image_path)
         if pred_image_path:
             self.pred_pixmap = QPixmap(pred_image_path)
+        self.scale_factor = 1.0  # 重置缩放因子
+        self.image_offset = QPoint(0, 0)  # 重置图片偏移
+        self.prev_image_offset = QPoint(0, 0)  # 重置上一次偏移
         self.update()
 
     def set_split_ratio(self, ratio):
         """设置分割比例 (0.0 - 1.0)"""
         self.split_ratio = max(0.0, min(1.0, ratio))
         self.update()
+
+    def wheelEvent(self, event):
+        """处理鼠标滚轮事件实现缩放功能"""
+        if not self.gt_pixmap or not self.pred_pixmap:
+            return
+
+        # 获取滚轮滚动角度
+        angle = event.angleDelta().y()
+
+        # 根据滚轮方向调整缩放因子
+        if angle > 0:
+            self.scale_factor *= 1.1  # 放大
+        else:
+            self.scale_factor /= 1.1  # 缩小
+
+        # 限制缩放范围在 0.1 到 10 倍之间
+        self.scale_factor = max(0.1, min(self.scale_factor, 10.0))
+
+        # 更新显示
+        self.update()
+
+    def mousePressEvent(self, event):
+        """处理鼠标按下事件"""
+        if event.button() == Qt.RightButton and (self.gt_pixmap or self.pred_pixmap):
+            self.dragging = True
+            # 修复弃用警告：使用 position().toPoint() 替代 pos()
+            self.drag_start_pos = event.position().toPoint()
+            self.prev_image_offset = self.image_offset
+            self.setCursor(Qt.ClosedHandCursor)  # 设置鼠标光标为抓手
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """处理鼠标移动事件"""
+        if self.dragging and self.drag_start_pos:
+            # 修复弃用警告：使用 position().toPoint() 替代 pos()
+            delta = event.position().toPoint() - self.drag_start_pos
+            # 更新图片偏移量
+            self.image_offset = self.prev_image_offset + delta
+            self.update()
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """处理鼠标释放事件"""
+        if event.button() == Qt.RightButton:
+            self.dragging = False
+            self.drag_start_pos = None
+            self.setCursor(Qt.ArrowCursor)  # 恢复鼠标光标
+        super().mouseReleaseEvent(event)
 
     def paintEvent(self, event):
         """绘制图像对比效果"""
@@ -396,36 +492,66 @@ class ImageComparisonWidget(QWidget):
         # 计算分割点
         split_x = int(widget_width * self.split_ratio)
 
-        # 缩放图像以适应控件大小
-        gt_scaled = self.gt_pixmap.scaled(widget_width, widget_height,
+        # 根据缩放因子调整图像尺寸
+        scaled_width = int(widget_width * self.scale_factor)
+        scaled_height = int(widget_height * self.scale_factor)
+
+        # 缩放图像（使用相同的缩放参数确保两张图大小一致）
+        gt_scaled = self.gt_pixmap.scaled(scaled_width, scaled_height,
                                           Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        pred_scaled = self.pred_pixmap.scaled(widget_width, widget_height,
+        pred_scaled = self.pred_pixmap.scaled(scaled_width, scaled_height,
                                               Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
-        # 计算居中位置
-        gt_x = (widget_width - gt_scaled.width()) // 2
-        gt_y = (widget_height - gt_scaled.height()) // 2
+        # 计算居中位置并应用偏移
+        image_x = (widget_width - gt_scaled.width()) // 2 + self.image_offset.x()
+        image_y = (widget_height - gt_scaled.height()) // 2 + self.image_offset.y()
 
         # 绘制真值图(左侧)
-        if split_x > gt_x:
-            source_rect = QRect(0, 0,
-                                min(split_x - gt_x, gt_scaled.width()),
-                                gt_scaled.height())
-            target_rect = QRect(gt_x, gt_y,
-                                min(split_x - gt_x, gt_scaled.width()),
-                                gt_scaled.height())
-            painter.drawPixmap(target_rect, gt_scaled, source_rect)
+        if split_x > image_x:
+            # 计算需要绘制的宽度
+            draw_width = min(split_x - image_x, gt_scaled.width())
+            if draw_width > 0:
+                # 源矩形：在缩放后的图像中要绘制的部分
+                source_rect = QRect(
+                    max(0, -self.image_offset.x()),  # 处理负偏移
+                    max(0, -self.image_offset.y()),  # 处理负偏移
+                    draw_width,
+                    gt_scaled.height()
+                )
+                # 目标矩形：在控件中绘制的位置
+                target_rect = QRect(
+                    image_x,
+                    image_y,
+                    draw_width,
+                    gt_scaled.height()
+                )
+                painter.drawPixmap(target_rect, gt_scaled, source_rect)
 
         # 绘制处理图(右侧)
-        pred_start_x = max(split_x, gt_x)
-        pred_width = min(gt_scaled.width() - (pred_start_x - gt_x),
-                         gt_scaled.width())
-        if pred_width > 0:
-            source_rect = QRect(pred_start_x - gt_x, 0,
-                                pred_width, gt_scaled.height())
-            target_rect = QRect(pred_start_x, gt_y,
-                                pred_width, gt_scaled.height())
-            painter.drawPixmap(target_rect, pred_scaled, source_rect)
+        if split_x < image_x + gt_scaled.width():
+            # 计算右侧图像的起始位置
+            pred_start_x = max(split_x, image_x)
+            # 计算需要绘制的宽度
+            pred_draw_width = min(
+                (image_x + gt_scaled.width()) - pred_start_x,
+                gt_scaled.width()
+            )
+            if pred_draw_width > 0:
+                # 源矩形：在缩放后的图像中要绘制的部分
+                source_rect = QRect(
+                    max(0, pred_start_x - image_x - self.image_offset.x()),
+                    max(0, -self.image_offset.y()),  # 与左侧图像保持一致的Y偏移
+                    pred_draw_width,
+                    pred_scaled.height()
+                )
+                # 目标矩形：在控件中绘制的位置
+                target_rect = QRect(
+                    pred_start_x,
+                    image_y,
+                    pred_draw_width,
+                    pred_scaled.height()
+                )
+                painter.drawPixmap(target_rect, pred_scaled, source_rect)
 
         # 绘制分割线
         painter.setPen(Qt.red)
@@ -434,6 +560,7 @@ class ImageComparisonWidget(QWidget):
         # 绘制分割线手柄（圆形）
         painter.setBrush(Qt.red)
         painter.drawEllipse(split_x - 5, widget_height // 2 - 10, 10, 20)
+
 
 # ======================
 # StyleManager
@@ -737,7 +864,7 @@ def merge_blocks(blocks: Dict[Tuple[int, int], np.ndarray], block_h: int, block_
     return merged
 
 
-def evaluate_images(pred_path: str, gt_path: str) -> Optional[Dict[str, float]]:
+def evaluate_images(pred_path: str, gt_path: str, enable_lpips: bool = False) -> Optional[Dict[str, float]]:
     if not os.path.exists(pred_path) or not os.path.exists(gt_path):
         return None
     pred = cv2.imread(pred_path)
@@ -753,38 +880,45 @@ def evaluate_images(pred_path: str, gt_path: str) -> Optional[Dict[str, float]]:
     p = psnr(gt, pred)
     s = ssim(gt_gray, pred_gray)
 
-    # 新增LPIPS计算
-    try:
-        import lpips
-        import torch
+    result = {"PSNR": p, "SSIM": s}
 
-        # 初始化LPIPS模型
-        loss_fn = lpips.LPIPS(net='alex')
+    # 根据选项决定是否计算LPIPS
+    if enable_lpips:
+        # 新增LPIPS计算
+        try:
+            import lpips
+            import torch
 
-        # 将图像转换为tensor并归一化到[-1, 1]
-        # 注意：cv2读取的图像是BGR格式，需要转换为RGB
-        pred_rgb = cv2.cvtColor(pred, cv2.COLOR_BGR2RGB)
-        gt_rgb = cv2.cvtColor(gt, cv2.COLOR_BGR2RGB)
+            # 初始化LPIPS模型
+            loss_fn = lpips.LPIPS(net='alex')
 
-        # 转换为tensor并调整维度顺序 (H, W, C) -> (C, H, W)
-        pred_tensor = torch.from_numpy(pred_rgb).float() / 255.0 * 2 - 1
-        gt_tensor = torch.from_numpy(gt_rgb).float() / 255.0 * 2 - 1
+            # 将图像转换为tensor并归一化到[-1, 1]
+            # 注意：cv2读取的图像是BGR格式，需要转换为RGB
+            pred_rgb = cv2.cvtColor(pred, cv2.COLOR_BGR2RGB)
+            gt_rgb = cv2.cvtColor(gt, cv2.COLOR_BGR2RGB)
 
-        # 添加批次维度 (C, H, W) -> (1, C, H, W)
-        pred_tensor = pred_tensor.permute(2, 0, 1).unsqueeze(0)
-        gt_tensor = gt_tensor.permute(2, 0, 1).unsqueeze(0)
+            # 转换为tensor并调整维度顺序 (H, W, C) -> (C, H, W)
+            pred_tensor = torch.from_numpy(pred_rgb).float() / 255.0 * 2 - 1
+            gt_tensor = torch.from_numpy(gt_rgb).float() / 255.0 * 2 - 1
 
-        # 计算LPIPS值
-        d = loss_fn(pred_tensor, gt_tensor)
-        l = d.item()
+            # 添加批次维度 (C, H, W) -> (1, C, H, W)
+            pred_tensor = pred_tensor.permute(2, 0, 1).unsqueeze(0)
+            gt_tensor = gt_tensor.permute(2, 0, 1).unsqueeze(0)
 
-        return {"PSNR": p, "SSIM": s, "LPIPS": l}
-    except ImportError:
-        # 如果没有安装lpips库，则只返回PSNR和SSIM
-        return {"PSNR": p, "SSIM": s}
-    except Exception:
-        # 如果计算LPIPS时出现其他错误，也只返回PSNR和SSIM
-        return {"PSNR": p, "SSIM": s}
+            # 计算LPIPS值
+            d = loss_fn(pred_tensor, gt_tensor)
+            l = d.item()
+
+            result["LPIPS"] = l
+
+        except ImportError:
+            # 如果没有安装lpips库，则添加提示信息
+            pass
+        except Exception:
+            # 如果计算LPIPS时出现其他错误，继续使用PSNR和SSIM
+            pass
+
+    return result
 
 
 # ======================
@@ -910,21 +1044,27 @@ class WorkerThread(QThread):
         pred_dir = self.kwargs.get("pred_dir")
         gt_dir = self.kwargs.get("gt_dir")
         output_csv = self.kwargs.get("output_csv", "evaluation_results_1.csv")
-
+        enable_lpips = self.kwargs.get("enable_lpips", False)  # 获取LPIPS启用选项
         image_extensions = [".png", ".jpg", ".jpeg", ".bmp"]
-        pred_files = {f.stem: f for ext in image_extensions for f in Path(pred_dir).glob(f"*{ext}")}
-        gt_files = {f.stem: f for ext in image_extensions for f in Path(gt_dir).glob(f"*{ext}")}
-
+        pred_files = {f.stem.strip(): f for ext in image_extensions for f in Path(pred_dir).glob(f"*{ext}")}
+        gt_files = {f.stem.strip(): f for ext in image_extensions for f in Path(gt_dir).glob(f"*{ext}")}
         common_names = set(pred_files.keys()) & set(gt_files.keys())
         results = []
 
         # 添加总数量用于进度条计算
         total = len(common_names)
+        # 按数字大小排序，而不是字典序
+        try:
+            # 尝试将文件名转换为数字进行排序
+            sorted_names = sorted(common_names, key=lambda x: int(x))
+        except ValueError:
+            # 如果无法转换为数字，则使用默认的字符串排序
+            sorted_names = sorted(common_names)
 
-        for i, name in enumerate(sorted(common_names)):
+        for i, name in enumerate(sorted_names):
             pred_path = str(pred_files[name])
             gt_path = str(gt_files[name])
-            eval_result = evaluate_images(pred_path, gt_path)
+            eval_result = evaluate_images(pred_path, gt_path, enable_lpips)
             if eval_result:
                 eval_result["Image"] = name
                 results.append(eval_result)
@@ -1005,6 +1145,100 @@ class ResizerWorker(QThread):
         self._running = False
 
 
+class SRWorker(QThread):
+    """超分处理工作线程"""
+    progress_updated = Signal(int)
+    log_updated = Signal(str)
+    finished_signal = Signal(bool, str)
+
+    def __init__(self, src_dir, dst_dir, model_name, outscale):
+        super().__init__()
+        self.src_dir = Path(src_dir)
+        self.dst_dir = Path(dst_dir)
+        self.model_name = model_name
+        self.outscale = outscale
+        self._running = True
+
+    def _check_sr_executable(self):
+        """检查realesrgan-ncnn-vulkan.exe是否存在"""
+        exe_path = r'H:\pycharm_project\PI-MAPP\project\huaweiyun_Camera\ui\realesrgan-ncnn-vulkan.exe'
+
+        # 只检查文件是否存在和是否有执行权限
+        if not os.path.exists(exe_path):
+            print(f"可执行文件不存在: {exe_path}")
+            return False
+
+        if not os.access(exe_path, os.X_OK):
+            print(f"可执行文件没有执行权限: {exe_path}")
+            return False
+
+        return True
+
+    def run(self):
+        try:
+            # 检查realesrgan-ncnn-vulkan.exe是否存在
+            exe_path = r'H:\pycharm_project\PI-MAPP\project\huaweiyun_Camera\ui\realesrgan-ncnn-vulkan.exe'
+            if not self._check_sr_executable():
+                self.finished_signal.emit(False, f"错误：找不到可执行文件 {exe_path} 或没有执行权限")
+                return
+
+            suffixes = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif')
+            files = [f for f in self.src_dir.iterdir()
+                     if f.suffix.lower() in suffixes]
+            total = len(files)
+            if total == 0:
+                self.log_updated.emit("输入目录中没有支持的图片")
+                self.finished_signal.emit(True, "操作完成，但输入目录中没有支持的图片")
+                return
+
+            self.dst_dir.mkdir(parents=True, exist_ok=True)
+            self.log_updated.emit(f"开始批量处理{self.src_dir}目录下的图片")
+            for idx, img_path in enumerate(files, 1):
+                if not self._running:
+                    self.log_updated.emit("处理已被用户停止")
+                    break
+
+                try:
+                    # 构建输出文件路径，保持文件名一致，格式为jpg
+                    out_path = (self.dst_dir / img_path.stem).with_suffix('.jpg')
+
+                    # 发送开始处理的消息
+                    self.log_updated.emit(f"[{idx}/{total}] 正在处理: {img_path.name}")
+
+                    # 构建命令行参数 - 修正参数顺序和格式
+                    cmd = [
+                        exe_path,
+                        '-i', str(img_path),
+                        '-o', str(out_path),
+                        '-n', self.model_name,
+                        '-s', str(self.outscale),
+                        '-f', 'jpg'
+                    ]
+
+                    # 执行命令
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+                    if result.returncode == 0:
+                        self.log_updated.emit(f"[{idx}/{total}] 成功处理: {img_path.name} -> {out_path.name}")
+                    else:
+                        error_msg = result.stderr if result.stderr else result.stdout
+                        self.log_updated.emit(
+                            f"[{idx}/{total}] 处理失败: {img_path.name} - 错误信息: {error_msg.strip()}")
+
+                except subprocess.TimeoutExpired:
+                    self.log_updated.emit(f"[{idx}/{total}] 处理超时: {img_path.name} (超过300秒)")
+                except Exception as e:
+                    self.log_updated.emit(f"[{idx}/{total}] 处理出错: {img_path.name} - 异常: {str(e)}")
+                self.progress_updated.emit(int(idx / total * 100))
+            self.log_updated.emit(f"批量处理完成，结果已保存在{self.dst_dir}目录下")
+            self.finished_signal.emit(True, "批量超分处理完成！")
+        except Exception as e:
+            self.finished_signal.emit(False, f"操作失败：{str(e)}")
+
+    def stop(self):
+        self._running = False
+
+
 # ======================
 # 主窗口 GUI
 # ======================
@@ -1012,7 +1246,7 @@ class ResizerWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("图像处理工具 v1.0")
+        self.setWindowTitle("图像处理工具 v1.0@ 第六届CSIG图像图形技术挑战赛 2025“Camera学术之星”----暗光增强赛题UI")
         self.setGeometry(20, 50, 750, 800)
         self.setStyleSheet(StyleManager.get_main_stylesheet())
 
@@ -1027,6 +1261,8 @@ class MainWindow(QMainWindow):
         self.tab_split = self._create_split_tab()
         self.tabs.addTab(self.tab_split, "图像分块")
 
+        self.tab_sr = self._create_sr_tab()
+        self.tabs.addTab(self.tab_sr, "图像超分")
         # Tab 2: 整合
         self.tab_merge = self._create_merge_tab()
         self.tabs.addTab(self.tab_merge, "图像整合")
@@ -1046,12 +1282,10 @@ class MainWindow(QMainWindow):
         # Tab 6: CSV可视化
         self.tab_csv_visualization = self._create_csv_visualization_tab()
         self.tabs.addTab(self.tab_csv_visualization, "CSV可视化")
-
         self.setCentralWidget(central_widget)
 
         # Thread
         self.worker_thread = None
-
     def _create_single_eval_tab(self):
         widget = QWidget()
         layout = QVBoxLayout(widget)
@@ -1072,12 +1306,36 @@ class MainWindow(QMainWindow):
         layout_input.addWidget(self.single_pred_path, 0, 1)
         layout_input.addWidget(self.single_pred_browse, 0, 2)
 
+        # 添加上图/下图按钮用于处理图
+        self.pred_prev_button = QPushButton("上图")
+        self.pred_next_button = QPushButton("下图")
+        self.pred_prev_button.clicked.connect(lambda: self._switch_image("pred", -1))
+        self.pred_next_button.clicked.connect(lambda: self._switch_image("pred", 1))
+        self.pred_prev_button.setEnabled(False)
+        self.pred_next_button.setEnabled(False)
+        pred_button_layout = QHBoxLayout()
+        pred_button_layout.addWidget(self.pred_prev_button)
+        pred_button_layout.addWidget(self.pred_next_button)
+        layout_input.addLayout(pred_button_layout, 0, 3)
+
         layout_input.addWidget(QLabel("真值图 (GT图):"), 1, 0)
         self.single_gt_path = QLineEdit()
         self.single_gt_browse = QPushButton("浏览...")
         self.single_gt_browse.clicked.connect(lambda: self._browse_file(self.single_gt_path))
         layout_input.addWidget(self.single_gt_path, 1, 1)
         layout_input.addWidget(self.single_gt_browse, 1, 2)
+
+        # 添加上图/下图按钮用于真值图
+        self.gt_prev_button = QPushButton("上图")
+        self.gt_next_button = QPushButton("下图")
+        self.gt_prev_button.clicked.connect(lambda: self._switch_image("gt", -1))
+        self.gt_next_button.clicked.connect(lambda: self._switch_image("gt", 1))
+        self.gt_prev_button.setEnabled(False)
+        self.gt_next_button.setEnabled(False)
+        gt_button_layout = QHBoxLayout()
+        gt_button_layout.addWidget(self.gt_prev_button)
+        gt_button_layout.addWidget(self.gt_next_button)
+        layout_input.addLayout(gt_button_layout, 1, 3)
 
         single_image_layout.addWidget(group_input)
 
@@ -1159,6 +1417,73 @@ class MainWindow(QMainWindow):
 
         return widget
 
+    def _switch_image(self, image_type, direction):
+        """切换图像文件"""
+        if image_type == "pred":
+            current_path = self.single_pred_path.text()
+        else:  # gt
+            current_path = self.single_gt_path.text()
+
+        if not current_path or not os.path.exists(current_path):
+            return
+
+        # 获取当前目录下的所有图像文件
+        current_dir = os.path.dirname(current_path)
+        image_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.tif')
+        image_files = []
+
+        for file in os.listdir(current_dir):
+            if file.lower().endswith(image_extensions):
+                image_files.append(file)
+
+        if len(image_files) <= 1:
+            return
+
+        image_files.sort()
+        current_file = os.path.basename(current_path)
+
+        try:
+            current_index = image_files.index(current_file)
+        except ValueError:
+            return
+
+        # 计算新索引
+        new_index = (current_index + direction) % len(image_files)
+        new_file_path = os.path.join(current_dir, image_files[new_index])
+
+        # 更新路径
+        if image_type == "pred":
+            self.single_pred_path.setText(new_file_path)
+        else:  # gt
+            self.single_gt_path.setText(new_file_path)
+
+        # 如果两个图像都已设置，则自动进行对比
+        if self.single_pred_path.text() and self.single_gt_path.text():
+            self._on_single_eval_clicked()
+
+    def _browse_file(self, line_edit: QLineEdit):
+        """浏览文件并更新按钮状态"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择图像文件",
+            "",
+            "图像文件 (*.png *.jpg *.jpeg *.bmp)"
+        )
+        if file_path:
+            line_edit.setText(file_path)
+            self._update_navigation_buttons()
+
+    def _update_navigation_buttons(self):
+        """根据当前路径更新导航按钮状态"""
+        # 更新处理图导航按钮
+        pred_path = self.single_pred_path.text()
+        self.pred_prev_button.setEnabled(bool(pred_path and os.path.exists(pred_path)))
+        self.pred_next_button.setEnabled(bool(pred_path and os.path.exists(pred_path)))
+
+        # 更新真值图导航按钮
+        gt_path = self.single_gt_path.text()
+        self.gt_prev_button.setEnabled(bool(gt_path and os.path.exists(gt_path)))
+        self.gt_next_button.setEnabled(bool(gt_path and os.path.exists(gt_path)))
 
     def _scroll_to_bottom(self, text_edit):
         """滚动 QTextEdit 到最底部"""
@@ -1210,6 +1535,7 @@ class MainWindow(QMainWindow):
         self.resizer_dst_browse.clicked.connect(lambda: self._browse_folder(self.resizer_dst_dir))
         layout_paths.addWidget(self.resizer_dst_dir, 1, 1)
         layout_paths.addWidget(self.resizer_dst_browse, 1, 2)
+        self.resizer_src_dir.textChanged.connect(self._on_resizer_src_dir_changed)
 
         layout.addWidget(group_paths)
 
@@ -1334,6 +1660,10 @@ class MainWindow(QMainWindow):
 
     # 在MainWindow类中添加单图对比处理方法
     def _on_single_eval_clicked(self):
+        """处理单图对比按钮点击事件"""
+        # 更新导航按钮状态
+        self._update_navigation_buttons()
+
         pred_path = self.single_pred_path.text()
         gt_path = self.single_gt_path.text()
 
@@ -1358,7 +1688,7 @@ class MainWindow(QMainWindow):
             self.single_log.append(f"PSNR: {result['PSNR']:.2f}")
             self.single_log.append(f"SSIM: {result['SSIM']:.4f}")
         else:
-            QMessageBox.warning(self, "错误", "图像对比失败，请检查图像文件是否有效且尺寸一致！")
+            self.single_log.append("图像指标对比失败，请检查图像文件是否有效且尺寸一致！")
 
     # 在MainWindow类中添加以下新方法
 
@@ -1408,7 +1738,7 @@ class MainWindow(QMainWindow):
         self.split_output_browse.clicked.connect(lambda: self._browse_folder(self.split_output_dir))
         layout_input.addWidget(self.split_output_dir, 1, 1)
         layout_input.addWidget(self.split_output_browse, 1, 2)
-
+        self.split_input_dir.textChanged.connect(self._on_split_input_dir_changed)
         layout_input.addWidget(QLabel("分块宽度:"), 2, 0)
         self.split_block_w = QSpinBox()
         self.split_block_w.setRange(64, 4096)
@@ -1441,6 +1771,141 @@ class MainWindow(QMainWindow):
 
         return widget
 
+    def _create_sr_tab(self):
+        """创建超分处理tab"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # 模型设置组
+        group_model = QGroupBox("模型设置")
+        layout_model = QHBoxLayout(group_model)
+
+        layout_model.addWidget(QLabel("模型:"))
+        self.sr_model_cb = QComboBox()
+        self._populate_sr_models()  # 自动填充模型列表
+        layout_model.addWidget(self.sr_model_cb)
+
+        layout_model.addWidget(QLabel("放大倍数:"))
+        self.sr_outscale_sb = QSpinBox()
+        self.sr_outscale_sb.setRange(1, 8)
+        self.sr_outscale_sb.setValue(4)
+        layout_model.addWidget(self.sr_outscale_sb)
+        layout_model.addStretch()
+
+        layout.addWidget(group_model)
+
+        # 路径设置组
+        group_paths = QGroupBox("路径设置")
+        layout_paths = QGridLayout(group_paths)
+
+        layout_paths.addWidget(QLabel("输入目录:"), 0, 0)
+        self.sr_src_dir = QLineEdit()
+        self.sr_src_browse = QPushButton("浏览...")
+        self.sr_src_browse.clicked.connect(lambda: self._browse_folder(self.sr_src_dir))
+        # 添加输入目录变化监听
+        self.sr_dst_dir = QLineEdit()
+        self.sr_src_dir.textChanged.connect(self._on_sr_src_dir_changed)
+        layout_paths.addWidget(self.sr_src_dir, 0, 1)
+        layout_paths.addWidget(self.sr_src_browse, 0, 2)
+
+        layout_paths.addWidget(QLabel("输出目录:"), 1, 0)
+
+        self.sr_dst_browse = QPushButton("浏览...")
+        self.sr_dst_browse.clicked.connect(lambda: self._browse_folder(self.sr_dst_dir))
+        layout_paths.addWidget(self.sr_dst_dir, 1, 1)
+        layout_paths.addWidget(self.sr_dst_browse, 1, 2)
+
+        layout.addWidget(group_paths)
+
+        # 进度和日志组
+        group_progress = QGroupBox("执行状态")
+        layout_progress = QVBoxLayout(group_progress)
+
+        self.sr_progress = QProgressBar()
+        self.sr_log = QTextEdit()
+
+        layout_progress.addWidget(self.sr_log, stretch=5)
+        layout_progress.addWidget(self.sr_progress)
+        layout.addWidget(group_progress, stretch=1)
+
+        # 按钮布局
+        button_layout = QHBoxLayout()
+        self.sr_run_btn = QPushButton("开始")
+        self.sr_stop_btn = QPushButton("停止")
+        self.sr_stop_btn.setEnabled(False)
+
+        self.sr_run_btn.setStyleSheet(StyleManager.get_button_style())
+        self.sr_stop_btn.setStyleSheet(StyleManager.get_button_style())
+
+        self.sr_run_btn.clicked.connect(self._on_sr_run)
+        self.sr_stop_btn.clicked.connect(self._on_sr_stop)
+
+        button_layout.addWidget(self.sr_run_btn)
+        button_layout.addWidget(self.sr_stop_btn)
+        layout.addLayout(button_layout)
+
+        widget.setLayout(layout)
+        return widget
+
+    def _populate_sr_models(self):
+        """自动填充超分模型列表"""
+        # 清空现有项
+        self.sr_model_cb.clear()
+
+        # 定义模型目录路径
+        model_dir = os.path.join(os.path.dirname(__file__), r"H:\pycharm_project\PI-MAPP\project\huaweiyun_Camera\ui\models")
+
+        # 如果model目录不存在，则使用默认模型列表
+        if not os.path.exists(model_dir):
+            default_models = [
+                "realesrgan-x4plus",
+                "realesrgan-x4plus-anime",
+                "realesr-animevideov3-x4",
+                "realesr-animevideov3-x3",
+                "realesr-animevideov3-x2"
+            ]
+            self.sr_model_cb.addItems(default_models)
+            self.sr_model_cb.setCurrentText("realesrgan-x4plus")
+            return
+
+        # 查找同时存在 .bin 和 .param 文件的模型
+        model_files = {}
+        for file in os.listdir(model_dir):
+            if file.endswith(".bin"):
+                base_name = file[:-4]  # 去除 .bin 后缀
+                param_file = base_name + ".param"
+                if os.path.exists(os.path.join(model_dir, param_file)):
+                    model_files[base_name] = True
+            elif file.endswith(".param"):
+                base_name = file[:-6]  # 去除 .param 后缀
+                bin_file = base_name + ".bin"
+                if os.path.exists(os.path.join(model_dir, bin_file)):
+                    model_files[base_name] = True
+
+        # 添加找到的模型到下拉列表
+        if model_files:
+            model_list = list(model_files.keys())
+            self.sr_model_cb.addItems(model_list)
+            self.sr_model_cb.setCurrentText(model_list[0])
+        else:
+            # 如果没有找到模型文件，使用默认列表
+            default_models = [
+                "realesrgan-x4plus",
+                "realesrgan-x4plus-anime",
+                "realesr-animevideov3-x4",
+                "realesr-animevideov3-x3",
+                "realesr-animevideov3-x2"
+            ]
+            self.sr_model_cb.addItems(default_models)
+            self.sr_model_cb.setCurrentText("realesrgan-x4plus")
+
+    def _on_sr_src_dir_changed(self, text):
+        """当输入目录改变时，自动设置输出目录"""
+        if text and os.path.exists(text):
+            # 生成输出目录路径：在输入目录后添加 "_output"
+            output_dir = text.rstrip('/\\') +'_'+self.sr_model_cb.currentText()+ "_output"
+            self.sr_dst_dir.setText(output_dir)
+
     def _create_merge_tab(self):
         widget = QWidget()
         layout = QVBoxLayout(widget)
@@ -1460,6 +1925,7 @@ class MainWindow(QMainWindow):
         self.merge_output_browse.clicked.connect(lambda: self._browse_folder(self.merge_output_dir))
         layout_input.addWidget(self.merge_output_dir, 1, 1)
         layout_input.addWidget(self.merge_output_browse, 1, 2)
+        self.merge_block_dir.textChanged.connect(self._on_merge_block_dir_changed)
 
         layout_input.addWidget(QLabel("分块宽度:"), 2, 0)
         self.merge_block_w = QSpinBox()
@@ -1501,6 +1967,7 @@ class MainWindow(QMainWindow):
         self.eval_pred_dir = QLineEdit()
         self.eval_pred_browse = QPushButton("浏览...")
         self.eval_pred_browse.clicked.connect(lambda: self._browse_folder(self.eval_pred_dir))
+        self.eval_pred_dir.textChanged.connect(self._on_eval_pred_dir_changed)  # 添加这行
         layout_input.addWidget(self.eval_pred_dir, 0, 1)
         layout_input.addWidget(self.eval_pred_browse, 0, 2)
 
@@ -1513,8 +1980,13 @@ class MainWindow(QMainWindow):
 
         layout_input.addWidget(QLabel("评估结果CSV:"), 2, 0)
         self.eval_output_csv = QLineEdit()
-        self.eval_output_csv.setText("evaluation_results_1.csv")
+        # 移除这行: self.eval_output_csv.setText("evaluation_results_1.csv")
         layout_input.addWidget(self.eval_output_csv, 2, 1)
+
+        # 添加LPIPS启用复选框
+        self.eval_lpips_checkbox = QCheckBox("启用LPIPS计算")
+        self.eval_lpips_checkbox.setToolTip("勾选以计算LPIPS指标（需要安装lpips库）")
+        layout_input.addWidget(self.eval_lpips_checkbox, 2, 2)
 
         layout.addWidget(group_input)
 
@@ -1523,21 +1995,72 @@ class MainWindow(QMainWindow):
         self.eval_progress = QProgressBar()
         self.eval_log = QTextEdit()
         # self.eval_log.setMaximumHeight(200)
-        layout_progress.addWidget(self.eval_log,stretch=4)
-        layout_progress.addWidget(self.eval_progress,stretch=1)
+        layout_progress.addWidget(self.eval_log, stretch=4)
+        layout_progress.addWidget(self.eval_progress, stretch=1)
         layout.addWidget(group_progress)
 
         self.eval_button = QPushButton("开始评估")
         self.eval_button.setStyleSheet(StyleManager.get_button_style())
         self.eval_button.clicked.connect(self._on_eval_clicked)
-        layout.addWidget(self.eval_button)
+
+        self.eval_cancel_button = QPushButton("取消评估")
+        self.eval_cancel_button.setStyleSheet(StyleManager.get_button_style())
+        self.eval_cancel_button.clicked.connect(self._on_eval_cancel_clicked)
+        self.eval_cancel_button.setEnabled(False)  # 默认禁用，只有在评估进行时才启用
+
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.eval_button)
+        button_layout.addWidget(self.eval_cancel_button)
+        layout.addLayout(button_layout)
 
         return widget
+
+    def _on_eval_pred_dir_changed(self, text):
+        """当预测图文件夹路径改变时，自动设置评估结果CSV文件名"""
+        if text:
+            # 获取路径的最后一部分
+            folder_name = text.strip('/\\').split('/')[-1].split('\\')[-1]
+
+            # 尝试按照指定规则提取模型名称
+            parts = folder_name.split('_')
+            if len(parts) >= 3:
+                # 获取倒数第三个部分作为模型名称
+                model_name = parts[-3]
+                csv_name = f"evaluation_results_{model_name}.csv"
+            else:
+                # 如果无法按规则提取，则使用默认名称
+                csv_name = "evaluation_results.csv"
+
+            self.eval_output_csv.setText(csv_name)
+        else:
+            # 如果没有输入路径，则清空CSV文件名
+            self.eval_output_csv.clear()
 
     def _browse_folder(self, line_edit: QLineEdit):
         folder = QFileDialog.getExistingDirectory(self, "选择文件夹")
         if folder:
             line_edit.setText(folder)
+
+    def _on_resizer_src_dir_changed(self, text):
+        """当输入目录改变时，自动设置输出目录"""
+        if text and os.path.exists(text):
+            # 生成输出目录路径：在输入目录后添加 "_resize"
+            output_dir = text.rstrip('/\\') + "_resize"
+            self.resizer_dst_dir.setText(output_dir)
+
+    def _on_merge_block_dir_changed(self, text):
+        """当分块目录改变时，自动设置输出整合文件夹"""
+        if text and os.path.exists(text):
+            # 生成输出目录路径：在分块目录后添加 "_整合" 或 "_merged"
+            output_dir = text.rstrip('/\\') + "_zhenghe"
+            self.merge_output_dir.setText(output_dir)
+
+    def _on_split_input_dir_changed(self, text):
+        """当输入目录改变时，自动设置输出分块文件夹"""
+        if text and os.path.exists(text):
+            # 生成输出目录路径：在输入目录后添加 "_fenkuai"
+            output_dir = text.rstrip('/\\') + "_fenkuai"
+            self.split_output_dir.setText(output_dir)
 
     def _on_split_clicked(self):
         if self._start_task("split"):
@@ -1550,6 +2073,31 @@ class MainWindow(QMainWindow):
     def _on_eval_clicked(self):
         if self._start_task("evaluate"):
             self.eval_button.setEnabled(False)
+            self.eval_cancel_button.setEnabled(True)  # 启用取消按钮
+
+    def _on_eval_cancel_clicked(self):
+        """处理取消评估按钮点击事件"""
+        if self.worker_thread and self.worker_thread.isRunning():
+            reply = QMessageBox.question(
+                self,
+                "确认取消",
+                "确定要取消当前评估任务吗？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+
+            if reply == QMessageBox.Yes:
+                # 终止工作线程
+                self.worker_thread.terminate()
+                self.worker_thread.wait()
+
+                # 重置界面状态
+                self.eval_button.setEnabled(True)
+                self.eval_cancel_button.setEnabled(False)
+                self.eval_progress.setValue(0)
+
+                self.eval_log.append("评估任务已被用户取消")
+                QMessageBox.information(self, "任务取消", "评估任务已取消")
 
     def _start_task(self, task_type: str):
         if self.worker_thread and self.worker_thread.isRunning():
@@ -1583,6 +2131,7 @@ class MainWindow(QMainWindow):
                 "pred_dir": self.eval_pred_dir.text(),
                 "gt_dir": self.eval_gt_dir.text(),
                 "output_csv": self.eval_output_csv.text(),
+                "enable_lpips": self.eval_lpips_checkbox.isChecked(),
             }
         return {}
 
@@ -1617,6 +2166,7 @@ class MainWindow(QMainWindow):
         self.split_button.setEnabled(True)
         self.merge_button.setEnabled(True)
         self.eval_button.setEnabled(True)
+        self.eval_cancel_button.setEnabled(False)  # 禁用取消按钮
         self.split_progress.setValue(0)
         self.merge_progress.setValue(0)
         self.eval_progress.setValue(0)
@@ -1662,6 +2212,47 @@ class MainWindow(QMainWindow):
         self.resizer_stop_btn.setEnabled(False)
         self.resizer_progress.setValue(0)
         QMessageBox.information(self, "批量缩放完成", message)
+
+    def _on_sr_run(self):
+        """开始超分处理"""
+        src = self.sr_src_dir.text()
+        dst = self.sr_dst_dir.text()
+        if not src or not dst:
+            QMessageBox.warning(self, "警告", "请先设置输入/输出目录")
+            return
+
+        if not os.path.exists(src):
+            QMessageBox.warning(self, "警告", "输入目录不存在")
+            return
+
+        self.sr_run_btn.setEnabled(False)
+        self.sr_stop_btn.setEnabled(True)
+        self.sr_progress.setValue(0)
+
+        self.sr_worker = SRWorker(
+            src, dst,
+            self.sr_model_cb.currentText(),
+            self.sr_outscale_sb.value()
+        )
+
+        self.sr_worker.progress_updated.connect(self.sr_progress.setValue)
+        self.sr_worker.log_updated.connect(self.sr_log.append)
+        self.sr_worker.finished_signal.connect(self._on_sr_finished)
+        self.sr_worker.start()
+
+    def _on_sr_stop(self):
+        """停止超分处理"""
+        if hasattr(self, 'sr_worker') and self.sr_worker.isRunning():
+            self.sr_worker.stop()
+            self.sr_worker.wait()
+        self._on_sr_finished(True, "操作已停止")
+
+    def _on_sr_finished(self, success: bool, message: str):
+        """超分处理完成回调"""
+        self.sr_run_btn.setEnabled(True)
+        self.sr_stop_btn.setEnabled(False)
+        self.sr_progress.setValue(0)
+        QMessageBox.information(self, "批量超分完成", message)
 
 
 # ======================
