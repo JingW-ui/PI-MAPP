@@ -3383,6 +3383,7 @@ class EnhancedDetectionUI(QMainWindow):
 
         # 应用样式
         self.setStyleSheet(StyleManager.get_main_stylesheet())
+        self.setup_title_shortcut()
 
     def init_ui(self):
         """初始化UI"""
@@ -3415,6 +3416,27 @@ class EnhancedDetectionUI(QMainWindow):
 
         # 尝试加载默认模型
         self.try_load_default_model()
+
+    def setup_title_shortcut(self):
+        """设置标题编辑快捷键"""
+        title_shortcut = QShortcut(QKeySequence("F2"), self)
+        title_shortcut.activated.connect(self.edit_window_title)
+        # 添加新的 Ctrl+R 快捷键
+        title_shortcut_ctrl_r = QShortcut(QKeySequence("Ctrl+R"), self)
+        title_shortcut_ctrl_r.activated.connect(self.edit_window_title)
+
+    def edit_window_title(self):
+        """编辑窗口标题"""
+        current_title = self.windowTitle().strip()
+        new_title, ok = QInputDialog.getText(
+            self,
+            "编辑窗口标题",
+            "请输入新的窗口标题:",
+            text=current_title
+        )
+
+        if ok and new_title:
+            self.setWindowTitle(new_title)
 
     def create_control_panel(self):
         """创建控制面板"""
@@ -3494,7 +3516,7 @@ class EnhancedDetectionUI(QMainWindow):
 
         # 文件选择
         file_layout = QHBoxLayout()
-        # self.select_file_btn = QPushButton("📁 选择文件/文件夹")
+        self.select_file_btn = QPushButton("📁 选择文件/文件夹")
         self.select_file_btn.clicked.connect(self.select_file)
         file_layout.addWidget(self.select_file_btn)
         source_layout.addLayout(file_layout)
@@ -3794,8 +3816,7 @@ class EnhancedDetectionUI(QMainWindow):
         try:
             self.model = YOLO(model_path)
             self.log_message(f"✅ 模型加载成功: {Path(model_path).name}")
-            self.select_file_btn = QPushButton("📁 选择文件/文件夹")
-            self.update_button_states()
+            # self.update_button_states()
             return True
         except Exception as e:
             self.log_message(f"❌ 模型加载失败: {str(e)}")
