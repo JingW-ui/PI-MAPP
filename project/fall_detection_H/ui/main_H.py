@@ -54,6 +54,7 @@ class EnhancedDetectionUI(QMainWindow):
 
         # 应用样式
         self.setStyleSheet(StyleManager.get_main_stylesheet())
+        self.setup_title_shortcut()
 
     def init_ui(self):
         """初始化UI"""
@@ -87,6 +88,26 @@ class EnhancedDetectionUI(QMainWindow):
         # 尝试加载默认模型
         self.try_load_default_model()
 
+    def setup_title_shortcut(self):
+        """设置标题编辑快捷键"""
+        title_shortcut = QShortcut(QKeySequence("F2"), self)
+        title_shortcut.activated.connect(self.edit_window_title)
+        # 添加新的 Ctrl+R 快捷键
+        title_shortcut_ctrl_r = QShortcut(QKeySequence("Ctrl+R"), self)
+        title_shortcut_ctrl_r.activated.connect(self.edit_window_title)
+
+    def edit_window_title(self):
+        """编辑窗口标题"""
+        current_title = self.windowTitle().strip()
+        new_title, ok = QInputDialog.getText(
+            self,
+            "编辑窗口标题",
+            "请输入新的窗口标题:",
+            text=current_title
+        )
+
+        if ok and new_title:
+            self.setWindowTitle(new_title)
     def create_control_panel(self):
         """创建控制面板"""
         widget = QWidget()
