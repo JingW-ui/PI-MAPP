@@ -1,15 +1,4 @@
-以下是根据您提供的代码完善的 README.md 文件：
-
-🧠 基于 YOLO 的脑部肿瘤智能检测系统（UI 版）
-
-<div align="center">
-
-https://img.shields.io/badge/Python-3.8%2B-blue](https://www.python.org/)
-https://img.shields.io/badge/PySide6-1.0%2B-blue](https://doc.qt.io/qtforpython/)
-https://img.shields.io/badge/YOLO-检测引擎-green](https://github.com/ultralytics/ultralytics)
-https://img.shields.io/badge/License-MIT-blue](LICENSE)
-
-</div>
+# 🧠 基于 YOLO 的脑部肿瘤智能检测系统（UI 版）
 
 🎯 项目简介
 
@@ -223,13 +212,12 @@ NIfTI 转换 医学 NIfTI 文件按切片方向导出为 PNG 序列
 
 • 📷 界面与功能截图：
 
-  • !img/ScreenShot_2025-10-27_094533_666.png
-
-  • !img/ScreenShot_2025-10-27_094608_900.png
-
-  • !img/ScreenShot_2025-10-27_094629_087.png
-
+![ScreenShot_2025-10-27_134557_730.png](img/ScreenShot_2025-10-27_134557_730.png)
+![ScreenShot_2025-10-27_134540_462.png](img/ScreenShot_2025-10-27_134540_462.png)
+![ScreenShot_2025-10-27_134528_947.png](img/ScreenShot_2025-10-27_134528_947.png)
+![ScreenShot_2025-10-27_134518_189.png](img/ScreenShot_2025-10-27_134518_189.png)
 🤝 持续更新与协作
+
 
 • 本项目持续更新中，欢迎广大开发者、医疗AI研究者、使用者 Star ⭐、Fork 🍴、提交反馈或贡献代码！
 
