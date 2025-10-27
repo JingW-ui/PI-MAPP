@@ -4,11 +4,9 @@
 
 本项目面向医疗影像辅助诊断场景，构建了基于 YOLO（You Only Look Once） 的 脑部肿瘤智能检测平台，旨在提升 胶质瘤（glioma）、脑膜瘤（meningioma）、垂体瘤（pituitary） 等常见脑部肿瘤的检出率与工作效率，有效缓解基层与专科医师的阅片压力，降低漏诊与误诊风险。
 
-系统提供可视化检测结果、批量处理、历史追溯与报告生成等功能，服务于临床决策支持与医学科研分析。
+系统提供可视化检测结果、批量处理、历史追溯与报告生成等功能，服务于临床决策支持与医学科研分析。基于[https://github.com/junior6666/PI-MAPP/tree/main/project/universal_object_detection_plus](https://github.com/junior6666/PI-MAPP/tree/main/project/universal_object_detection_plus)
 
 🏥 项目定位与适用场景
-
-维度 说明
 
 🎯 核心目标 提升脑部肿瘤（胶质瘤、脑膜瘤、垂体瘤）的智能识别与辅助诊断能力
 
@@ -88,7 +86,7 @@
 
 📂 项目结构概览
 
-
+````
 Brain_Tumor_dection_ui/
 ├── Brain_Tumor_detection_ui.py      # 主程序入口
 ├── README.md                        # 项目说明文档（本文件）
@@ -101,7 +99,7 @@ Brain_Tumor_dection_ui/
 ├── requirements.txt                 # （建议）Python 依赖包列表
 └── ...                              # 其他资源/工具（如爬虫、检测工具等）
 
-
+````
 📌 注意：
 
 - 您需要自行下载并放置 YOLO 模型文件（如 .pt 文件） 到项目目录（如 models/），或确保模型能被正确扫描与加载。
