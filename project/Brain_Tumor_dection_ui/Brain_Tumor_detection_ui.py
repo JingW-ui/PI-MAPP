@@ -510,7 +510,7 @@ class ModelManager:
 
     def __init__(self):
         self.models_paths = [
-            Path("../pt_models"),
+            Path("pt_models"),
             Path("../models"),
             Path("weights"),
         ]
@@ -3387,7 +3387,7 @@ class EnhancedDetectionUI(QMainWindow):
 
     def init_ui(self):
         """初始化UI"""
-        self.setWindowTitle("🚀 医院摔倒实时检测系统 ")
+        self.setWindowTitle("🚀 基于YOLO的脑部肿瘤检测系统 ")
         self.setGeometry(100, 100, 1400, 750)
 
         central_widget = QWidget()
@@ -3605,6 +3605,10 @@ class EnhancedDetectionUI(QMainWindow):
         # 创建标签页
         self.tab_widget = QTabWidget()
 
+        # 创建 NIfTI 格式转换标签页
+        nifti_tab = self.create_nifti_conversion_tab()
+        self.tab_widget.addTab(nifti_tab, " NIfTI 转换")
+
         # 实时检测标签页
         realtime_tab = self.create_realtime_tab()
         self.tab_widget.addTab(realtime_tab, "🎯 实时检测")
@@ -3623,6 +3627,371 @@ class EnhancedDetectionUI(QMainWindow):
 
         layout.addWidget(self.tab_widget)
         return widget
+
+    def create_nifti_conversion_tab(self):
+        """创建NIfTI格式转换标签页"""
+        nifti_tab = QWidget()
+        layout = QVBoxLayout(nifti_tab)
+
+        # 文件选择区域
+        file_group = QGroupBox("📁 文件选择")
+        file_layout = QVBoxLayout(file_group)
+
+        file_select_layout = QHBoxLayout()
+        self.nii_file_edit = QLineEdit()
+        self.nii_file_edit.setPlaceholderText("选择NIfTI文件或目录...")
+        file_select_layout.addWidget(self.nii_file_edit)
+
+        self.browse_nii_btn = QPushButton("浏览")
+        self.browse_nii_btn.clicked.connect(self.browse_nii_file)
+        file_select_layout.addWidget(self.browse_nii_btn)
+
+        file_layout.addLayout(file_select_layout)
+
+        # 输出目录设置
+        output_layout = QHBoxLayout()
+        output_layout.addWidget(QLabel("📤 输出目录:"))
+        self.output_dir_edit = QLineEdit()
+        self.output_dir_edit.setPlaceholderText("自动设置为输入目录 + '_swift_normal'")
+        output_layout.addWidget(self.output_dir_edit)
+
+        self.browse_output_btn = QPushButton("浏览")
+        self.browse_output_btn.clicked.connect(self.browse_output_dir)
+        output_layout.addWidget(self.browse_output_btn)
+
+        file_layout.addLayout(output_layout)
+
+        layout.addWidget(file_group)
+
+        # 切片设置和文件信息横向布局区域
+        settings_layout = QHBoxLayout()
+        # 切片设置区域
+        slice_group = QGroupBox("🔪 切片设置")
+        slice_layout = QVBoxLayout(slice_group)
+
+        # 切片方向选择
+        direction_layout = QHBoxLayout()
+        direction_layout.addWidget(QLabel("🧭 切片方向:"))
+        self.slice_direction_combo = QComboBox()
+        self.slice_direction_combo.addItems(["水平位 (Axial)", "冠状位 (Coronal)", "矢状位 (Sagittal)"])
+        self.slice_direction_combo.setCurrentText("水平位 (Axial)")
+        self.slice_direction_combo.currentTextChanged.connect(self.update_slice_info)
+        direction_layout.addWidget(self.slice_direction_combo)
+        direction_layout.addStretch()
+
+        slice_layout.addLayout(direction_layout)
+
+        # 切片范围设置
+        range_layout = QHBoxLayout()
+        # 在创建切片范围设置的部分，为 QSpinBox 添加信号连接
+        range_layout.addWidget(QLabel("📏 切片范围:"))
+        self.start_slice_spin = QSpinBox()
+        self.start_slice_spin.setMinimum(0)
+        self.start_slice_spin.setValue(60)
+        self.start_slice_spin.valueChanged.connect(self.on_slice_range_changed)  # 添加这一行
+        range_layout.addWidget(self.start_slice_spin)
+
+        range_layout.addWidget(QLabel(" - "))
+
+        self.end_slice_spin = QSpinBox()
+        self.end_slice_spin.setMinimum(0)
+        self.end_slice_spin.setMaximum(1000)
+        self.end_slice_spin.setValue(150)
+        self.end_slice_spin.valueChanged.connect(self.on_slice_range_changed)  # 添加这一行
+        range_layout.addWidget(self.end_slice_spin)
+
+        range_layout.addStretch()
+        slice_layout.addLayout(range_layout)
+
+        # 切片信息显示
+        info_layout = QHBoxLayout()
+        self.slice_info_label = QLabel("_slices: 0, 当前范围: 0-0")
+        info_layout.addWidget(self.slice_info_label)
+        info_layout.addStretch()
+        slice_layout.addLayout(info_layout)
+
+        # layout.addWidget(slice_group)
+
+        # 文件信息显示区域
+        info_group = QGroupBox("📊 文件信息")
+        info_layout = QVBoxLayout(info_group)
+
+        self.file_info_text = QTextEdit()
+        self.file_info_text.setReadOnly(True)
+        self.file_info_text.setMaximumHeight(100)
+        info_layout.addWidget(self.file_info_text)
+
+        # layout.addWidget(info_group)
+        # 添加两个区域到水平布局
+        settings_layout.addWidget(slice_group)
+        settings_layout.addWidget(info_group)
+        slice_group.setMaximumHeight(150)  # 限制切片设置区域高度
+        info_group.setMaximumHeight(150)  # 限制文件信息区域高度
+        # 设置两个区域等宽
+        settings_layout.setStretch(0, 1)
+        settings_layout.setStretch(1, 1)
+
+        layout.addLayout(settings_layout)
+        # 预览区域
+        preview_group = QGroupBox("🖼️ 切片预览")
+        preview_layout = QVBoxLayout(preview_group)
+
+        self.preview_scroll = QScrollArea()
+        self.preview_scroll.setWidgetResizable(True)
+        self.preview_widget = QWidget()
+        self.preview_layout = QHBoxLayout(self.preview_widget)
+        self.preview_scroll.setWidget(self.preview_widget)
+
+        preview_layout.addWidget(self.preview_scroll)
+        layout.addWidget(preview_group)
+
+        # 控制按钮
+        button_layout = QHBoxLayout()
+        self.convert_btn = QPushButton("🔄 转换")
+        self.convert_btn.clicked.connect(self.convert_nifti)
+        self.convert_btn.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }")
+        button_layout.addWidget(self.convert_btn)
+
+        self.preview_btn = QPushButton("👀 预览")
+        self.preview_btn.clicked.connect(self.generate_preview)
+        button_layout.addWidget(self.preview_btn)
+
+        layout.addLayout(button_layout)
+
+        # 初始化状态
+        self.current_nii_file = None
+        self.nii_data = None
+
+        return nifti_tab
+
+    def on_slice_range_changed(self, value):
+        """当切片范围改变时更新预览图"""
+        # 更新切片信息显示
+        self.update_slice_info()
+
+        # 重新生成预览图
+        if hasattr(self, 'current_nii_file') and self.current_nii_file:
+            self.generate_preview()
+
+    def browse_nii_file(self):
+        """浏览NIfTI文件或目录"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择NIfTI文件",
+            "",
+            "NIfTI Files (*.nii *.nii.gz);;All Files (*)"
+        )
+
+        if file_path:
+            self.nii_file_edit.setText(file_path)
+            self.load_nifti_file(file_path)
+
+    def browse_output_dir(self):
+        """浏览输出目录"""
+        dir_path = QFileDialog.getExistingDirectory(self, "选择输出目录")
+        if dir_path:
+            self.output_dir_edit.setText(dir_path)
+
+    def load_nifti_file(self, file_path):
+        """加载NIfTI文件并显示信息"""
+        try:
+            import nibabel as nib
+            self.current_nii_file = file_path
+            nii = nib.load(file_path)
+            self.nii_data = nii.get_fdata()
+
+            # 更新输出目录
+            if not self.output_dir_edit.text():
+                input_dir = Path(file_path).parent
+                output_dir = input_dir / f"{Path(file_path).stem}_swift_normal"
+                self.output_dir_edit.setText(str(output_dir))
+
+            # 更新切片范围
+            self.update_slice_range()
+
+            # 显示文件信息
+            self.display_file_info(nii)
+
+            # 生成预览
+            self.generate_preview()
+
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"加载NIfTI文件失败: {str(e)}")
+
+    def update_slice_range(self):
+        """更新切片范围控件"""
+        if self.nii_data is not None:
+            # 根据切片方向确定最大切片数
+            direction = self.slice_direction_combo.currentIndex()
+            max_slices = self.nii_data.shape[direction] - 1
+
+            self.start_slice_spin.setMaximum(max_slices)
+            self.end_slice_spin.setMaximum(max_slices)
+            self.end_slice_spin.setValue(max_slices)
+
+            self.update_slice_info()
+
+    def update_slice_info(self):
+        """更新切片信息显示"""
+        if self.nii_data is not None:
+            direction = self.slice_direction_combo.currentIndex()
+            max_slices = self.nii_data.shape[direction]
+            start = self.start_slice_spin.value()
+            end = min(self.end_slice_spin.value(), max_slices - 1)
+
+            self.slice_info_label.setText(f"_slices: {max_slices}, 当前范围: {start}-{end}")
+
+    def display_file_info(self, nii):
+        """显示NIfTI文件信息"""
+        try:
+            import os
+            from datetime import datetime
+
+            file_path = self.current_nii_file
+            file_size = os.path.getsize(file_path)
+            mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+
+            header = nii.header
+            shape = nii.shape
+            dtype = header.get_data_dtype()
+            affine = nii.affine
+
+            # 计算空间分辨率
+            voxel_sizes = header.get_zooms()
+
+            info_text = f"文件大小: {self.format_file_size(file_size)}\n"
+            info_text += f"修改日期: {mod_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            info_text += f"图像维度: {shape}\n"
+            info_text += f"数据类型: {dtype}\n"
+            info_text += f"空间分辨率: {voxel_sizes[:3] if len(voxel_sizes) >= 3 else voxel_sizes}\n"
+
+            self.file_info_text.setText(info_text)
+        except Exception as e:
+            self.file_info_text.setText(f"无法读取文件信息: {str(e)}")
+
+    def format_file_size(self, size_bytes):
+        """格式化文件大小显示"""
+        if size_bytes == 0:
+            return "0 B"
+
+        size_names = ["B", "KB", "MB", "GB"]
+        i = 0
+        while size_bytes >= 1024 and i < len(size_names) - 1:
+            size_bytes /= 1024.0
+            i += 1
+
+        return f"{size_bytes:.1f} {size_names[i]}"
+
+    def generate_preview(self):
+        """生成预览图像"""
+        if self.nii_data is None:
+            return
+
+        # 清除现有预览
+        for i in reversed(range(self.preview_layout.count())):
+            self.preview_layout.itemAt(i).widget().setParent(None)
+
+        try:
+            import matplotlib.pyplot as plt
+            from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+            import numpy as np
+
+            direction = self.slice_direction_combo.currentIndex()
+            max_slices = self.nii_data.shape[direction]
+            start = self.start_slice_spin.value()
+            end = min(self.end_slice_spin.value(), max_slices - 1)
+
+            # 选择5个代表性切片
+            indices = np.linspace(start, end, 5, dtype=int)
+
+            for idx in indices:
+                # 提取切片
+                if direction == 0:  # Sagittal
+                    slice_data = self.nii_data[idx, :, :]
+                elif direction == 1:  # Coronal
+                    slice_data = self.nii_data[:, idx, :]
+                else:  # Axial
+                    slice_data = self.nii_data[:, :, idx]
+
+                # 创建图像
+                fig = plt.Figure(figsize=(2, 2), dpi=100)
+                ax = fig.add_subplot(111)
+                ax.imshow(slice_data, cmap='gray')
+                ax.set_title(f"Slice {idx}")
+                ax.axis('off')
+
+                canvas = FigureCanvas(fig)
+                canvas.setToolTip(f"切片索引: {idx}")
+                self.preview_layout.addWidget(canvas)
+
+            plt.close('all')
+
+        except Exception as e:
+            error_label = QLabel(f"预览生成失败: {str(e)}")
+            self.preview_layout.addWidget(error_label)
+
+    def convert_nifti(self):
+        """执行NIfTI转换"""
+        if not self.current_nii_file:
+            QMessageBox.warning(self, "警告", "请先选择NIfTI文件")
+            return
+
+        output_dir = self.output_dir_edit.text()
+        if not output_dir:
+            QMessageBox.warning(self, "警告", "请设置输出目录")
+            return
+
+        try:
+            import nibabel as nib
+            import numpy as np
+            from PIL import Image
+            import os
+
+            # 创建输出目录
+            os.makedirs(output_dir, exist_ok=True)
+
+            # 加载NIfTI文件
+            nii = nib.load(self.current_nii_file)
+            data = nii.get_fdata()
+
+            direction = self.slice_direction_combo.currentIndex()
+            start = self.start_slice_spin.value()
+            end = min(self.end_slice_spin.value(), data.shape[direction] - 1)
+
+            # 转换切片
+            progress = QProgressDialog("正在转换...", "取消", 0, end - start + 1, self)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.show()
+
+            count = 0
+            for i in range(start, end + 1):
+                if progress.wasCanceled():
+                    break
+
+                # 提取切片
+                if direction == 0:  # Sagittal
+                    slice_data = data[i, :, :]
+                elif direction == 1:  # Coronal
+                    slice_data = data[:, i, :]
+                else:  # Axial
+                    slice_data = data[:, :, i]
+
+                # 标准化到0-255
+                slice_data = ((slice_data - slice_data.min()) /
+                              (slice_data.max() - slice_data.min()) * 255).astype(np.uint8)
+
+                # 保存为PNG
+                img = Image.fromarray(slice_data)
+                img.save(os.path.join(output_dir, f"slice_{i:04d}.png"))
+
+                count += 1
+                progress.setValue(count)
+
+            progress.close()
+            QMessageBox.information(self, "成功", f"转换完成！共保存 {count} 张切片到:\n{output_dir}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"转换失败: {str(e)}")
 
     def create_realtime_tab(self):
         """创建实时检测标签页"""
@@ -4532,7 +4901,7 @@ def main():
     window.show()
 
     # 启动消息
-    window.log_message("🚀 医院摔倒实时检测系统 已启动")
+    window.log_message("🚀 基于YOLO的脑部肿瘤检测系统 已启动")
     window.log_message("✨ 新功能: 渐变UI、多摄像头支持、实时监控、增强日志等")
 
     sys.exit(app.exec())
