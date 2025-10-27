@@ -9,7 +9,7 @@
 
 项目打包
 ```python
-pyinstaller -F -w --name YOLO_D_UI1.0.2 dabao_main.py
+pyinstaller -F -w --name Brain_Tumor_detection_ui Brain_Tumor_detection_ui.py
 ```
 🏥 项目定位与适用场景
 
@@ -115,11 +115,8 @@ Brain_Tumor_dection_ui/
 
 1. 克隆项目
 
-git clone [项目地址]
+git clone 🔗 https://github.com/junior6666/PI-MAPP/tree/main/project/Brain_Tumor_dection_ui  
 cd Brain_Tumor_dection_ui
-
-
-🔗 https://github.com/junior6666/PI-MAPP/tree/main/project/Brain_Tumor_dection_ui  
 
 （点击上方链接查看源码、提交反馈或参与协作）
 
@@ -139,8 +136,10 @@ pip install PySide6 ultralytics opencv-python numpy pillow matplotlib nibabel
 ```
 
 3. 运行主程序
-
+```python
 python Brain_Tumor_detection_ui.py
+```
+
 
 
 ⚠️ 注意：
@@ -205,13 +204,6 @@ NIfTI 转换 医学 NIfTI 文件按切片方向导出为 PNG 序列
 检测结果仅供参考，实际诊断请以专业医师判断为准。  
 
 开发者不对因使用本项目导致的任何直接或间接后果承担责任。
-
-📎 项目资源
-
-• 🔗 源码地址（GitHub）：  
-
-  https://github.com/junior6666/PI-MAPP/tree/main/project/Brain_Tumor_dection_ui  
-  （欢迎 Star ⭐ & Fork 🍴，提交 Issue 或 Pull Request！）
 
 • 📷 界面与功能截图：
 
