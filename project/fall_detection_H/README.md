@@ -66,3 +66,6 @@
 
 ### 参考原项目readme
 项目地址：https://github.com/junior6666/PI-MAPP/tree/main/project/universal_object_detection_plus
+
+## 项目打包
+pyinstaller -F -w --name YOLO_D_UI1.0.2 dabao_main.py
