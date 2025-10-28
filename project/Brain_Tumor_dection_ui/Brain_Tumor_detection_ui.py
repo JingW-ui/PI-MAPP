@@ -2688,6 +2688,127 @@ class EnhancedMonitoringWidget(QWidget):
             if detection_result in self.detection_stats:
                 self.detection_stats[detection_result] += 1
                 self.update_stats()
+class SliceDetailDialog(QDialog):
+        """切片详细信息弹窗"""
+
+        def __init__(self, nii_data, slice_index, direction, parent=None):
+            super().__init__(parent)
+            self.nii_data = nii_data
+            self.current_slice_index = slice_index
+            self.direction = direction
+            self.max_slices = nii_data.shape[direction]
+
+            self.init_ui()
+            self.update_slice_display()
+            # 启用鼠标跟踪以捕获滚轮事件
+            self.setMouseTracking(True)
+
+        def init_ui(self):
+            self.setWindowTitle(f"切片详细信息 - Slice {self.current_slice_index}")
+            self.resize(600, 600)
+
+            layout = QVBoxLayout(self)
+
+            # 图像显示区域
+            self.image_label = QLabel()
+            self.image_label.setAlignment(Qt.AlignCenter)
+            self.image_label.setMinimumSize(400, 400)
+            # 启用图像标签的鼠标事件
+            self.image_label.setMouseTracking(True)
+            self.image_label.installEventFilter(self)  # 安装事件过滤器
+            layout.addWidget(self.image_label)
+
+            # 控制按钮区域
+            button_layout = QHBoxLayout()
+
+            self.prev_button = QPushButton("⬆️ 上一张")
+            self.prev_button.clicked.connect(self.show_previous_slice)
+            button_layout.addWidget(self.prev_button)
+
+            self.slice_info_label = QLabel(f"Slice {self.current_slice_index}/{self.max_slices - 1}")
+            self.slice_info_label.setAlignment(Qt.AlignCenter)
+            button_layout.addWidget(self.slice_info_label)
+
+            self.next_button = QPushButton("⬇️ 下一张")
+            self.next_button.clicked.connect(self.show_next_slice)
+            button_layout.addWidget(self.next_button)
+
+            layout.addLayout(button_layout)
+
+            # 关闭按钮
+            close_button = QPushButton("关闭")
+            close_button.clicked.connect(self.accept)
+            layout.addWidget(close_button)
+
+            # 更新按钮状态
+            self.update_button_states()
+        def eventFilter(self, obj, event):
+            """事件过滤器，用于处理鼠标滚轮事件"""
+            if obj == self.image_label and event.type() == QEvent.Wheel:
+                if event.angleDelta().y() > 0:  # 向上滚动
+                    self.show_previous_slice()
+                else:  # 向下滚动
+                    self.show_next_slice()
+                return True
+            return super().eventFilter(obj, event)
+        def update_slice_display(self):
+            """更新切片显示"""
+            try:
+                # 提取切片数据
+                if self.direction == 0:  # Sagittal
+                    slice_data = self.nii_data[self.current_slice_index, :, :]
+                elif self.direction == 1:  # Coronal
+                    slice_data = self.nii_data[:, self.current_slice_index, :]
+                else:  # Axial
+                    slice_data = self.nii_data[:, :, self.current_slice_index]
+
+                # 确保数据是连续的
+                if not slice_data.flags['C_CONTIGUOUS']:
+                    slice_data = np.ascontiguousarray(slice_data)
+
+                # 转换为 QImage 显示
+                # 归一化数据到 0-255 范围
+                slice_normalized = ((slice_data - slice_data.min()) /
+                                    (slice_data.max() - slice_data.min()) * 255).astype(np.uint8)
+
+                height, width = slice_normalized.shape
+                bytes_per_line = width
+                q_img = QImage(slice_normalized.data, width, height, bytes_per_line, QImage.Format_Grayscale8)
+
+                # 缩放图像以适应显示区域
+                pixmap = QPixmap.fromImage(q_img)
+                scaled_pixmap = pixmap.scaled(
+                    self.image_label.size(),
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation
+                )
+                self.image_label.setPixmap(scaled_pixmap)
+
+                # 更新切片信息
+                self.slice_info_label.setText(f"Slice {self.current_slice_index}/{self.max_slices - 1}")
+
+                # 更新按钮状态
+                self.update_button_states()
+
+            except Exception as e:
+                self.image_label.setText(f"显示错误: {str(e)}")
+
+        def update_button_states(self):
+            """更新按钮状态"""
+            self.prev_button.setEnabled(bool(self.current_slice_index > 0))
+            self.next_button.setEnabled(bool(self.current_slice_index < self.max_slices - 1))
+
+        def show_previous_slice(self):
+            """显示上一张切片"""
+            if self.current_slice_index > 0:
+                self.current_slice_index -= 1
+                self.update_slice_display()
+
+        def show_next_slice(self):
+            """显示下一张切片"""
+            if self.current_slice_index < self.max_slices - 1:
+                self.current_slice_index += 1
+                self.update_slice_display()
 
 
 class SnapshotWidget(QWidget):
@@ -3385,6 +3506,11 @@ class EnhancedDetectionUI(QMainWindow):
         self.setStyleSheet(StyleManager.get_main_stylesheet())
         self.setup_title_shortcut()
 
+        self.slice_update_timer = QTimer()
+        self.slice_update_timer.setSingleShot(True)
+        self.slice_update_timer.timeout.connect(self.update_slice_preview)
+        self.slice_range_changed = False
+
     def init_ui(self):
         """初始化UI"""
         self.setWindowTitle("🚀 基于YOLO的脑部肿瘤检测系统 ")
@@ -3673,7 +3799,7 @@ class EnhancedDetectionUI(QMainWindow):
         direction_layout = QHBoxLayout()
         direction_layout.addWidget(QLabel("🧭 切片方向:"))
         self.slice_direction_combo = QComboBox()
-        self.slice_direction_combo.addItems(["水平位 (Axial)", "冠状位 (Coronal)", "矢状位 (Sagittal)"])
+        self.slice_direction_combo.addItems(["冠状位 (Coronal)","水平位 (Axial)", "矢状位 (Sagittal)"])
         self.slice_direction_combo.setCurrentText("水平位 (Axial)")
         self.slice_direction_combo.currentTextChanged.connect(self.update_slice_info)
         direction_layout.addWidget(self.slice_direction_combo)
@@ -3766,13 +3892,11 @@ class EnhancedDetectionUI(QMainWindow):
 
     def on_slice_range_changed(self, value):
         """当切片范围改变时更新预览图"""
-        # 更新切片信息显示
-        self.update_slice_info()
+        # 设置标志位，表示切片范围已更改
+        self.slice_range_changed = True
 
-        # 重新生成预览图
-        if hasattr(self, 'current_nii_file') and self.current_nii_file:
-            self.generate_preview()
-
+        # 重启定时器，延迟更新预览图
+        self.slice_update_timer.start(100)  # 300毫秒延迟，避免频繁更新
     def browse_nii_file(self):
         """浏览NIfTI文件或目录"""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -3827,7 +3951,7 @@ class EnhancedDetectionUI(QMainWindow):
 
             self.start_slice_spin.setMaximum(max_slices)
             self.end_slice_spin.setMaximum(max_slices)
-            self.end_slice_spin.setValue(max_slices)
+            # self.end_slice_spin.setValue(max_slices)
 
             self.update_slice_info()
 
@@ -3889,7 +4013,9 @@ class EnhancedDetectionUI(QMainWindow):
 
         # 清除现有预览
         for i in reversed(range(self.preview_layout.count())):
-            self.preview_layout.itemAt(i).widget().setParent(None)
+            widget = self.preview_layout.itemAt(i).widget()
+            if widget:
+                widget.setParent(None)
 
         try:
             import matplotlib.pyplot as plt
@@ -3922,6 +4048,13 @@ class EnhancedDetectionUI(QMainWindow):
 
                 canvas = FigureCanvas(fig)
                 canvas.setToolTip(f"切片索引: {idx}")
+
+                # 添加右键菜单功能
+                canvas.setContextMenuPolicy(Qt.CustomContextMenu)
+                canvas.customContextMenuRequested.connect(
+                    lambda pos, c=canvas, index=idx, dir_=direction:
+                    self.show_slice_context_menu(pos, c, index, dir_)
+                )
                 self.preview_layout.addWidget(canvas)
 
             plt.close('all')
@@ -3930,6 +4063,35 @@ class EnhancedDetectionUI(QMainWindow):
             error_label = QLabel(f"预览生成失败: {str(e)}")
             self.preview_layout.addWidget(error_label)
 
+    def show_slice_context_menu(self, pos, canvas, slice_index, direction):
+        """显示切片右键菜单"""
+        context_menu = QMenu(self)
+
+        # 添加放大操作
+        zoom_action = QAction("🔍 放大查看", self)
+        zoom_action.triggered.connect(
+            lambda: self.show_slice_detail(slice_index, direction)
+        )
+        context_menu.addAction(zoom_action)
+
+        context_menu.exec(canvas.mapToGlobal(pos))
+
+    def show_slice_detail(self, slice_index, direction):
+        """显示切片详细信息弹窗"""
+        dialog = SliceDetailDialog(self.nii_data, slice_index, direction, self)
+        dialog.exec()
+
+    def update_slice_preview(self):
+        """更新切片预览图"""
+        if not self.slice_range_changed:
+            return
+        # 重置标志位
+        self.slice_range_changed = False
+        # 更新切片信息显示
+        self.update_slice_info()
+        # 重新生成预览图
+        if hasattr(self, 'current_nii_file') and self.current_nii_file:
+            self.generate_preview()
     def convert_nifti(self):
         """执行NIfTI转换"""
         if not self.current_nii_file:
@@ -4632,7 +4794,7 @@ class EnhancedDetectionUI(QMainWindow):
         report_path = result_dir / "detection_report.txt"
 
         with open(report_path, 'w', encoding='utf-8') as f:
-            f.write("🎯 Enhanced Object Detection System - 批量检测报告\n")
+            f.write("🎯 基于YOLO的脑部肿瘤检测系统 - 批量检测报告\n")
             f.write("=" * 60 + "\n")
             f.write(f"📅 处理时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"🎚️ 置信度阈值: {self.confidence_threshold}\n")
@@ -4888,7 +5050,7 @@ def main():
     app = QApplication(sys.argv)
 
     # 设置应用程序信息
-    app.setApplicationName("Enhanced Object Detection System")
+    app.setApplicationName("基于YOLO的脑部肿瘤检测系统")
     app.setApplicationVersion("2.0")
     app.setOrganizationName("AI Vision Lab")
 
