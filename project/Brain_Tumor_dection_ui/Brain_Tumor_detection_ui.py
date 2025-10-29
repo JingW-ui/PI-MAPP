@@ -56,18 +56,10 @@ Enhanced Universal Object Detection System v2.0
 """
 
 import sys
-import os
-import cv2
-import time
-import json
-from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple
-
 from PySide6.QtWidgets import *
 from PySide6.QtCore import *
 from PySide6.QtGui import *
-import numpy as np
 
 try:
     from ultralytics import YOLO
@@ -3731,9 +3723,7 @@ class EnhancedDetectionUI(QMainWindow):
         # 创建标签页
         self.tab_widget = QTabWidget()
 
-        # 创建 NIfTI 格式转换标签页
-        nifti_tab = self.create_nifti_conversion_tab()
-        self.tab_widget.addTab(nifti_tab, " NIfTI 转换")
+
 
         # 实时检测标签页
         realtime_tab = self.create_realtime_tab()
@@ -3750,6 +3740,10 @@ class EnhancedDetectionUI(QMainWindow):
         # 监控快照标签页
         self.snapshot_widget = SnapshotWidget()
         self.tab_widget.addTab(self.snapshot_widget, "🎬 监控快照")
+
+        # 创建 NIfTI 格式转换标签页
+        nifti_tab = self.create_nifti_conversion_tab()
+        self.tab_widget.addTab(nifti_tab, " NIfTI 转换")
 
         layout.addWidget(self.tab_widget)
         return widget
