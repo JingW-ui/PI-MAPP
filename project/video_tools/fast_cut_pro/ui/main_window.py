@@ -5,7 +5,7 @@ import datetime
 from typing import Optional, List
 
 import cv2
-from PySide6.QtCore import Qt, QSize, Signal
+from PySide6.QtCore import Qt, QSize, Signal, QThread, QObject
 from PySide6.QtGui import QAction, QKeySequence, QFont
 from PySide6.QtWidgets import (
     QMainWindow,
@@ -34,6 +34,32 @@ from project.video_tools.fast_cut_pro.video_player import VideoPlayer
 from project.video_tools.fast_cut_pro.models import VideoItem, MarkPoint
 
 from project.video_tools.fast_cut_pro.extractor import batch_extract
+
+
+class ExtractWorker(QObject):
+    progress = Signal(int, int)  # processed, total
+    success = Signal()
+    error = Signal(str)
+
+    def __init__(self, videos: List[VideoItem], output_dir: str) -> None:
+        super().__init__()
+        self._videos = videos
+        self._output_dir = output_dir
+
+    def run(self) -> None:
+        total_jobs = sum(len(v.marks) for v in self._videos)
+        processed = 0
+
+        def on_progress(_path: str) -> None:
+            nonlocal processed, total_jobs
+            processed += 1
+            self.progress.emit(processed, total_jobs)
+
+        try:
+            batch_extract(self._videos, self._output_dir, on_progress)
+            self.success.emit()
+        except Exception as e:  # noqa: BLE001
+            self.error.emit(str(e))
 
 
 class MainWindow(QMainWindow):
@@ -647,20 +673,48 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "提示", "没有标记，无需截取。")
             return
 
+        # 禁用相关按钮，避免重复触发
+        self.btn_extract.setEnabled(False)
+        self.action_add_videos.setEnabled(False)
+        self.action_remove_video.setEnabled(False)
         self.progress.setValue(0)
-        processed = 0
 
-        def on_progress(_path: str) -> None:
-            nonlocal processed, total_jobs
-            processed += 1
-            pct = int(processed / total_jobs * 100)
-            self.progress.setValue(pct)
+        # 启动后台线程执行导出
+        self._extract_thread = QThread(self)
+        self._extract_worker = ExtractWorker(self.video_items, output_dir)
+        self._extract_worker.moveToThread(self._extract_thread)
 
-        try:
-            batch_extract(self.video_items, output_dir, on_progress)
-            QMessageBox.information(self, "完成", "批量截取完成！")
-        except Exception as e:  # noqa: BLE001
-            QMessageBox.critical(self, "错误", f"截取失败：{e}")
+        # 连接信号槽
+        self._extract_thread.started.connect(self._extract_worker.run)
+        self._extract_worker.progress.connect(self._on_extract_progress)
+        self._extract_worker.success.connect(self._on_extract_success)
+        self._extract_worker.error.connect(self._on_extract_error)
+
+        # 线程结束时清理
+        self._extract_worker.success.connect(self._extract_thread.quit)
+        self._extract_worker.error.connect(self._extract_thread.quit)
+        self._extract_thread.finished.connect(self._extract_worker.deleteLater)
+        self._extract_thread.finished.connect(self._extract_thread.deleteLater)
+
+        self._extract_thread.start()
+
+    # 后台导出：UI 更新与完成/错误处理
+    def _on_extract_progress(self, processed: int, total: int) -> None:
+        pct = 0 if total <= 0 else int(processed / total * 100)
+        self.progress.setValue(pct)
+
+    def _restore_extract_ui(self) -> None:
+        self.btn_extract.setEnabled(True)
+        self.action_add_videos.setEnabled(True)
+        self.action_remove_video.setEnabled(True)
+
+    def _on_extract_success(self) -> None:
+        self._restore_extract_ui()
+        QMessageBox.information(self, "完成", "批量截取完成！")
+
+    def _on_extract_error(self, message: str) -> None:
+        self._restore_extract_ui()
+        QMessageBox.critical(self, "错误", f"截取失败：{message}")
 
     # utils
     @staticmethod

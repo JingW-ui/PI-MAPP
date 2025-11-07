@@ -59,7 +59,12 @@ def _run_ffmpeg_cut(src: str, start_sec: float, duration_sec: float, out_path: s
     last_err: Exception | None = None
     for cmd in attempts:
         try:
-            subprocess.run(cmd, check=True)
+            subprocess.run(
+                cmd,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
             return
         except Exception as e:  # noqa: BLE001
             last_err = e

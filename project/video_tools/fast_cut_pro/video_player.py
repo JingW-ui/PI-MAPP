@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import cv2
 import numpy as np
 from typing import Optional
@@ -8,6 +9,17 @@ from PySide6.QtCore import Qt, QTimer, Signal, QObject, QUrl
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QLabel, QSizePolicy
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+
+# 抑制 QtMultimedia(FFmpeg 后端)与 OpenCV 控制台日志
+# 需在创建多媒体对象/使用 OpenCV 前设置
+os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia.ffmpeg.debug=false;qt.multimedia.debug=false")
+# 强制使用 Windows 媒体后端，避免 FFmpeg 后端将解封装信息写到 stderr
+os.environ.setdefault("QT_MEDIA_BACKEND", "windows")
+try:
+    # OpenCV 控制台日志静音
+    cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_SILENT)
+except Exception:
+    pass
 
 
 class VideoPlayer(QObject):

@@ -67,7 +67,15 @@ fast_cut_pro/
 ### 常见问题
 - **提示未找到 ffmpeg**：请到 https://ffmpeg.org 下载对应平台版本，将 `bin` 目录加入系统环境变量。
 - **无法加载视频或音频不同步**：确保安装了最新版显卡驱动并使用 `opencv-python` 4.8 及以上版本；必要时可以尝试重新加载视频或重新设置标记。
+- 原因：桌面图标来自可执行文件的 `--icon`，但窗口左上角图标需要运行时从磁盘加载。打包后相对路径变化，`QIcon("ico/app_128px.ico")` 找不到资源，因而回退为默认图标。
+- 处理：现在运行时会兼容 PyInstaller 的资源目录 `sys._MEIPASS` 并同时给 `QApplication` 与主窗口设置图标，打包后窗口图标即可生效。无需改打包命令，但需确保仍包含 `--add-data "ico;ico"`。
 
 如需深入了解开发背景，可参考 `开发说明.md`。
+
+### 打包
+```commandline
+cd H:\pycharm_project\PI-MAPP\project\video_tools\fast_cut_pro
+pyinstaller --name FastCutPro --windowed --icon ico\app_256px.ico --add-data "ico;ico" --add-data "ui;ui" --paths ..\..\.. main.py
+```
 
 
