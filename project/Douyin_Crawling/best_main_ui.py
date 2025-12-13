@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 from DrissionPage import ChromiumPage
+from DrissionPage._configs.chromium_options import ChromiumOptions
 from PySide6.QtCore import QThread, Signal, Qt, QUrl, QObject
 from PySide6.QtGui import QIcon, QDesktopServices
 from PySide6.QtWidgets import (
@@ -191,7 +192,7 @@ class CrawlWorker(QThread):
 
     def crawl_from_homepage(self):
         self.log_signal.emit(f"🌐 开始从主页爬取 {self.pages} 页数据...")
-        driver = ChromiumPage()
+        driver = self.create_browser_with_fallback()
         listen_url = 'aweme/v1/web/aweme/post/'
         driver.listen.start(listen_url)
         driver.get(self.url)
@@ -226,9 +227,42 @@ class CrawlWorker(QThread):
         driver.close()
         self.status_signal.emit(f"✅ 主页爬取完成，共获取 {count} 条数据")
 
+    def create_browser_with_fallback(self):
+        """
+        创建浏览器实例，支持自动降级到备用浏览器
+        """
+        # 定义浏览器路径列表（按优先级排序）
+        browser_paths = [
+            # Edge 浏览器常见路径
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"
+        ]
+
+        # 首先尝试使用默认浏览器
+        try:
+            driver = ChromiumPage()
+            return driver
+        except Exception as e:
+            print(f"默认浏览器启动失败: {e}")
+
+        # 尝试指定浏览器路径
+        for browser_path in browser_paths:
+            try:
+                co = ChromiumOptions()
+                co.set_browser_path(browser_path)
+                driver = ChromiumPage(co)
+                print(f"成功使用浏览器: {browser_path}")
+                return driver
+            except Exception as e:
+                print(f"浏览器 {browser_path} 启动失败: {e}")
+                continue
+
+        # 如果所有浏览器都失败，抛出异常
+        raise Exception("无法启动任何可用的浏览器")
+
     def crawl_from_search(self):
         self.log_signal.emit(f"🔍 开始搜索关键词：'{self.theme}'，共 {self.pages} 页...")
-        driver = ChromiumPage()
+        driver = self.create_browser_with_fallback()
         first_url = 'aweme/v1/web/general/search/stream/'
         next_url = 'aweme/v1/web/general/search/single/'
         url = f"https://www.douyin.com/jingxuan/search/{self.theme}"
@@ -417,7 +451,7 @@ class MainWindow(QMainWindow):
         self.url_input.setPlaceholderText("请输入用户主页URL")
         # 设置默认主页 URL
         self.url_input.setText(
-            'https://www.douyin.com/user/MS4wLjABAAAApX522hgyNjhiAtiOGTZpWWDC3SQtdJvjWLX6pg00g4UyNnS-Zp9ISM190WvyYacK?from_tab_name=main&vid=7413737675921837350'
+            'https://www.douyin.com/user/MS4wLjABAAAAMJjGosAGAUMT6GyGXfq4Ke_DFIdgDS9hVRiFx0wWebcglMD8RwBI-L0LsKk7vlA9?from_tab_name=main&is_search=0&list_name=follow&nt=2'
         )
 
         self.theme_input = QLineEdit()

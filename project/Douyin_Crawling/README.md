@@ -6,6 +6,8 @@
 ![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
 
 一个基于 Python 的现代化 🕷️ 爬虫工具，专为抖音数据采集而设计！具有美观的渐变 UI 界面 🎨 和多线程支持 ⚡。
+支持chrome和edge浏览器，使用之前确保电脑满足以上任意一个要求。 使用时默认打开Chorme浏览器，当chrome浏览器打开失败后，会去尝试打开Edge浏览器。请确保浏览器安装在默认路径下（即C盘当中）。
+
 
 ## ✨ 特性功能
 
@@ -35,7 +37,7 @@ pip install PySide6 DrissionPage
 
 1. **运行应用**：
    ```bash
-   python main_ui_plus.py
+   python best_main_ui.py
    ```
 
 2. **输入参数**：
@@ -51,7 +53,7 @@ pip install PySide6 DrissionPage
    - 📊 数据自动格式化为易读结构
 
 ## 🖼️ 界面预览
-![wechat_2025-08-26_164011_277.png](ui_img/wechat_2025-08-26_164011_277.png)
+![ScreenShot_2025-12-13_125425_456.png](ui_img/ScreenShot_2025-12-13_125425_456.png)
 > ✨ 精美的渐变背景和现代化按钮设计
 
 ## 📁 项目结构
@@ -84,6 +86,7 @@ Douyin_Crawling/
 pyinstaller --onefile --windowed --icon=icon1.ico --name "DouyinCrawler" --clean --hidden-import PySide6.QtXml --exclude-module tkinter --exclude-module matplotlib main_ui_plus.py
 
 pyinstaller --onefile --windowed --icon=icon1.ico --name "DouyinCrawler2.0" --clean --hidden-import PySide6.QtXml --exclude-module tkinter --exclude-module matplotlib best_main_ui.py
+pyinstaller --onefile --windowed --icon=icon1.ico --name "DouyinCrawler2.1" --clean --hidden-import PySide6.QtXml --exclude-module tkinter --exclude-module matplotlib best_main_ui.py
 
 ```
 ## ⚠️ 注意事项

@@ -118,10 +118,10 @@ class IconGenerator:
 if __name__ == "__main__":
     icon_pixmap = IconGenerator(
         bg_color=(30, 60, 120),
-        text_color=(230, 255, 255),
-        text="Dc",
+        text_color=(0, 255, 0),
+        text="Vip",
         enable_gradient=True,
         size=128,
         font_size=48,
         corner_radius=20,
-    ).create_icon("icon1.ico")
+    ).create_icon("vip.ico")
