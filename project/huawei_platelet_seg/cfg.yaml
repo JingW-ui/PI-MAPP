@@ -1,0 +1,9 @@
+
+path: H:\pycharm_project\PI-MAPP\project\huawei_platelet_seg\dataset_demo\ # dataset root dir
+train: images\train # train images (relative to 'path') 128 images
+val: images\val # val images
+test: # test images (optional)
+
+# Classes
+names:
+  0: platelet
