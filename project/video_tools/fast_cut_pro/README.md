@@ -1,7 +1,7 @@
 ## Fast Cut Pro
 
 Fast Cut Pro 是一个基于 `PySide6` 和 `OpenCV` 的桌面工具，可帮助你快速浏览长视频、为关键画面打点并批量截取前后片段。它适合体育集锦、监控筛选、采访整理等需要快速定位精彩瞬间的场景。
-
+可执行包下载链接：[FastCutPro](https://github.com/JingW-ui/PI-MAPP/releases/tag/FastCutPro)
 ### 主要功能
 - 支持批量导入单个文件或整个文件夹的多种视频格式（mp4/mov/mkv/avi 等）。
 - 逐帧预览视频，实时显示时间轴、帧索引、分辨率、帧率等信息。
