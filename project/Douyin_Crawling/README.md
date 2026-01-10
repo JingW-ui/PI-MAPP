@@ -8,7 +8,9 @@
 一个基于 Python 的现代化 🕷️ 爬虫工具，专为抖音数据采集而设计！具有美观的渐变 UI 界面 🎨 和多线程支持 ⚡。
 支持chrome和edge浏览器，使用之前确保电脑满足以上任意一个要求。 使用时默认打开Chorme浏览器，当chrome浏览器打开失败后，会去尝试打开Edge浏览器。请确保浏览器安装在默认路径下（即C盘当中）。
 
+下载链接：[DouyinCrawler2.1.exe](https://github.com/JingW-ui/PI-MAPP/releases/tag/DouyinCrawler2.1)
 
+视频介绍：[观看教程](https://www.bilibili.com/video/BV1jvemzeEUt/?vd_source=ea444bcb59e16e58cfdca990f3514384)
 ## ✨ 特性功能
 
 - 🎯 **智能爬取** - 自动抓取抖音搜索结果的文案、作者和签名信息
@@ -22,7 +24,7 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/junior6666/PI-MAPP.git
+git clone https://github.com/JingW-ui/PI-MAPP.git
 cd project/Douyin_Crawling
 
 ```
