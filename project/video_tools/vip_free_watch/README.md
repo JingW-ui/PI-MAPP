@@ -16,7 +16,7 @@
 
 ### 方法一：直接使用可执行文件 (推荐)
 
-1. 📥 从发布页面下载最新版本的 `VIP追剧神器.exe`
+1. 📥 从发布页面下载最新版本的 [VIP追剧神器.exe](https://github.com/JingW-ui/PI-MAPP/releases/tag/VIP%E8%BF%BD%E5%89%A7%E7%A5%9E%E5%99%A8)
 2. 🖱️ 双击运行即可使用
 3. 🔗 粘贴VIP视频链接，选择解析通道
 4. ▶️ 点击"播放VIP视频"按钮开始观看
