@@ -2,7 +2,7 @@
 
 有体验过在这个网址https://jsj.top/f/Thvy0K 抢不到名额的槽糕体验吗，有这个工具你将不再担心
 这是一个针对该网址开发的表单自动提交工具，无需担心再也抢不到活动名额。
-
+提供绿色可执行文件[点击获取](https://github.com/JingW-ui/PI-MAPP/releases/)
 <img src="img/results.png" alt="表单自动提交工具">
 
 

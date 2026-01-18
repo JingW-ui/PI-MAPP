@@ -2,6 +2,7 @@
 # B站弹幕分析工具使用说明
 
 ## 项目简介
+## [提供绿色可执行文件>>>点击获取](https://github.com/JingW-ui/PI-MAPP/releases/)
 
 这是一个基于PySide6开发的B站弹幕分析工具，具有以下功能：
 

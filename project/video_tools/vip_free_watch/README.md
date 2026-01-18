@@ -1,5 +1,5 @@
 # 🎬 VIP免费追剧神器 🚀
-
+## [提供绿色可执行文件>>>点击获取](https://github.com/JingW-ui/PI-MAPP/releases/)
 ![Python](https://img.shields.io/badge/Python-3.6%2B-blue?style=flat-square&logo=python)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square)
