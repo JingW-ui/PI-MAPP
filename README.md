@@ -152,3 +152,24 @@
 *   **持续学习：** AI领域日新月异，保持学习的热情和习惯至关重要。
 
 祝你学习顺利，在人工智能的探索之旅中收获满满！这条按时间线梳理的路径，能让你深刻体会到AI发展的脉络和先辈们的智慧结晶。加油！
+
+
+
+
+## 项目导览
+* [肿瘤检测系统](project/Brain_Tumor_dection_ui/README.md) - 基于YOLO的脑肿瘤检测桌面工具，支持MRI/CT图像快速识别胶质瘤、脑膜瘤、垂体瘤等常见脑肿瘤
+* [B站弹幕爬取](project/Danmaku_scraping/README.md) - B站弹幕分析工具，支持弹幕抓取、格式转换和可视化词云生成
+* [抖音文案爬取](project/Douyin_Crawling/README.md) - 基于PySide6的抖音数据爬取工具，支持关键词搜索和多格式数据导出
+* [摔倒检测系统](project/fall_detection_H/README.md) - 基于YOLO的实时摔倒检测系统，提供批量检测、多摄像头监控和视频录制功能
+* [华为比赛项目_血小板分割](project/huawei_platelet_seg/README.md) - 基于YOLO模型的血小板检测与分割系统，支持实例分割和结果可视化
+* [华为比赛项目_图像超分工具](project/huaweiyun_Camera/ui/README.md) - 图像处理工具，集成了图像分块、整合、质量评估和批量缩放等功能
+* [通用目标检测系统_初版](project/universal_object_detection/README.md) - 基于YOLO的通用目标检测系统，支持多种检测模式和批量处理
+* [通用目标检测系统_plus版本](project/universal_object_detection_plus/README.md)**推荐** - 功能更强的目标检测系统，具备现代化UI、详细结果分析和多摄像头支持
+* [图片工具_图片转ico](project/picture_tools/png2ico/README.md) - 图片格式转换工具，支持将PNG图片转换为ICO图标格式
+* [图片工具_图片转pdf](project/picture_tools/img2pdf/README.md) - 图片格式转换工具，支持将图片转换为pdf格式
+* [视频工具_快速从视频中截取片段](project/video_tools/fast_cut_pro/README.md) - 视频编辑工具，支持快速从视频中精确截取所需片段
+* [视频工具_图片转动图](project/video_tools/img2gif/README.md) - 图片转GIF工具，支持批量制作动图
+* [视频工具_各媒体会员视频免费看](project/video_tools/vip_free_watch/README.md) - 视频播放工具，支持观看各大媒体平台视频内容
+
+
+  
