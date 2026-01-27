@@ -38,7 +38,7 @@ from PySide6.QtCore import *
 from PySide6.QtGui import *
 from ultralytics import YOLO
 
-#!/usr/bin/env python3
+# !/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Enhanced Universal Object Detection System v2.0
@@ -384,7 +384,7 @@ class StyleManager:
                 stop:0 rgba(248, 249, 250, 0.9), stop:1 rgba(233, 236, 239, 0.9));
             color: #7f8c8d;
             font-weight: bold;
-            font-size: 14px;
+            font-size: 12px;
             border-radius: 10px;
             padding: 15px;
         """
@@ -567,6 +567,7 @@ class ModelManager:
         except:
             return "Unknown"
 
+
 class DetectionThread(QThread):
     """增强的检测线程"""
     result_ready = Signal(object, object, float, object, list)  # 原图, 结果图, 耗时, 检测结果, 类别名称
@@ -628,6 +629,7 @@ class DetectionThread(QThread):
 
         self.result_ready.emit(original_img, result_img, end_time - start_time, results, class_names)
         self.progress_updated.emit(100)
+        self.status_changed.emit("处理完成")
 
     def _process_video(self):
         """处理视频文件"""
@@ -755,10 +757,10 @@ class DetectionThread(QThread):
         self.is_paused = False
         self.status_changed.emit(f"恢复检测")
 
-
     def stop(self):
         self.is_running = False
         self.status_changed.emit(f"检测结束!")
+
 
 class BatchDetectionThread(QThread):
     """批量检测线程"""
@@ -1079,41 +1081,59 @@ class ModelSelectionDialog(QDialog):
         super().accept()
 
 
+
 class DetectionResultWidget(QWidget):
-    """检测结果显示组件"""
+    """检测结果显示组件 - 修改版本，包含诊断报告"""
 
     def __init__(self):
         super().__init__()
+        self.diagnosis_widget = None
         self.init_ui()
 
     def init_ui(self):
-        layout = QVBoxLayout(self)
+        # 使用水平布局，左侧检测结果表格，右侧诊断报告
+        main_layout = QHBoxLayout(self)
+
+        # 左侧：检测结果表格区域
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
 
         # 标题
         title = QLabel("🎯 检测结果详情表")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50; margin-bottom: 10px;")
-        # title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50; margin-bottom: 5px;")
+        left_layout.addWidget(title)
 
         # 结果表格
         self.result_table = QTableWidget()
-        self.result_table.setColumnCount(5)
-        self.result_table.setHorizontalHeaderLabels(["序号", "类别", "置信度", "坐标 (x,y)", "尺寸 (w×h)"])
+        self.result_table.setColumnCount(6)
+        self.result_table.setHorizontalHeaderLabels(
+            ["类别", "置信度", "坐标 (x,y)", "尺寸 (w×h)", "估计直径 (pixel)", "像素面积(pixel²)"])
         self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.result_table.horizontalHeader().setStyleSheet("""
             QHeaderView::section {
-                font-size: 10pt;
+                background-color: white;  /* 深蓝色背景 */
+                color: #2c3e50;               
+                font-size: 8pt;
                 font-weight: bold;
-                height: 12px;     /* 在 QSS 里 height 对表头 section 生效 */
+                height: 12px;
+                border: 1px solid #d0d0d0;       /* 边框 */
+            }
+        """)
+        self.result_table.setStyleSheet("""
+            QTableWidget {
+                font-size: 8pt;  /* 调整表格内容字体大小 */
+                text-align: center; /* 居中对齐 */
+                align: center; /* 居中对齐 */
             }
         """)
         self.result_table.setMaximumHeight(200)
         self.result_table.setAlternatingRowColors(True)
 
-        layout.addWidget(self.result_table)
+        left_layout.addWidget(self.result_table)
 
         # 统计信息
-        self.stats_label = QLabel("等待检测结果...")
+        self.stats_label = QLabel("检测摘要...")
+        self.stats_label.setMinimumHeight(60)  # 设置最小高度为40像素
         self.stats_label.setStyleSheet("""
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                 stop:0 rgba(236, 240, 241, 0.9), stop:1 rgba(189, 195, 199, 0.9));
@@ -1123,7 +1143,11 @@ class DetectionResultWidget(QWidget):
             color: #2c3e50;
             font-weight: bold;
         """)
-        layout.addWidget(self.stats_label)
+        # 修改这部分代码
+        left_layout.addWidget(self.stats_label)
+
+        main_layout.addWidget(left_panel)
+
 
     def update_results(self, results, class_names, inference_time):
         """更新检测结果"""
@@ -1141,14 +1165,16 @@ class DetectionResultWidget(QWidget):
         self.result_table.setRowCount(len(confidences))
 
         class_counts = {}
+        detection_data = []  # 存储检测数据用于生成报告
+
         for i, (conf, cls, box) in enumerate(zip(confidences, classes, xyxy)):
             class_name = class_names[cls] if cls < len(class_names) else f"类别{cls}"
 
             # 统计类别数量
             class_counts[class_name] = class_counts.get(class_name, 0) + 1
 
-            self.result_table.setItem(i, 0, QTableWidgetItem(str(i + 1)))
-            self.result_table.setItem(i, 1, QTableWidgetItem(class_name))
+            # 从第0列开始填充数据，跳过序号列
+            self.result_table.setItem(i, 0, QTableWidgetItem(class_name))
 
             # 置信度带颜色
             conf_item = QTableWidgetItem(f"{conf:.3f}")
@@ -1158,23 +1184,79 @@ class DetectionResultWidget(QWidget):
                 conf_item.setBackground(QColor(241, 196, 15, 100))  # 黄色
             else:
                 conf_item.setBackground(QColor(231, 76, 60, 100))  # 红色
-            self.result_table.setItem(i, 2, conf_item)
+            self.result_table.setItem(i, 1, conf_item)
 
-            self.result_table.setItem(i, 3, QTableWidgetItem(f"({box[0]:.0f},{box[1]:.0f})"))
-            self.result_table.setItem(i, 4, QTableWidgetItem(f"{box[2] - box[0]:.0f}×{box[3] - box[1]:.0f}"))
+            # 计算宽度和高度
+            width = box[2] - box[0]
+            height = box[3] - box[1]
 
+            self.result_table.setItem(i, 2, QTableWidgetItem(f"({box[0]:.0f},{box[1]:.0f})"))
+            self.result_table.setItem(i, 3, QTableWidgetItem(f"{width:.0f}×{height:.0f}"))
+
+            # 计算直径 (假设是圆形肿瘤，直径等于平均尺寸)
+            diameter = (width + height) / 2  # 像素为单位
+            diameter_mm = diameter  #
+            self.result_table.setItem(i, 4, QTableWidgetItem(f"{diameter_mm:.2f}"))
+
+            voxel_size = 1.0  # 默认体素单位为1mm
+            voxel_value = 0.785 * width * height * voxel_size
+            self.result_table.setItem(i, 5, QTableWidgetItem(f"{voxel_value:.2f}"))
+
+            # 添加到检测数据列表，也相应调整
+            detection_data.append({
+                'index': i + 1,  # 仍然保留内部索引用于报告
+                'class': class_name,
+                'confidence': conf,
+                'x': box[0],
+                'y': box[1],
+                'width': width,
+                'height': height,
+                'diameter': diameter_mm,
+                'voxel': voxel_value
+            })
         # 更新统计信息
         total_objects = len(confidences)
-        avg_confidence = np.mean(confidences)
+        if total_objects > 0:
+            avg_confidence = np.mean(confidences)
 
-        stats_text = f"✅ 检测到 {total_objects} 个目标 | "
-        stats_text += f"🎯 平均置信度: {avg_confidence:.3f} | "
-        stats_text += f"⏱️ 耗时: {inference_time:.3f}秒\n"
-        stats_text += "📊 类别统计: " + " | ".join([f"{name}: {count}" for name, count in class_counts.items()])
+            # 计算平均直径和体素
+            diameters = []
+            voxels = []
+
+            for i, (conf, cls, box) in enumerate(zip(confidences, classes, xyxy)):
+                width = box[2] - box[0]
+                height = box[3] - box[1]
+
+                # 计算直径 (假设是圆形肿瘤，直径等于平均尺寸)
+                diameter = (width + height) / 2  # 像素为单位
+                diameters.append(diameter)
+
+                # 计算体素
+                voxel_size = 1.0  # 默认体素单位为1mm
+                voxel_value = 0.785 * width * height * voxel_size
+                voxels.append(voxel_value)
+
+            avg_diameter = np.mean(diameters)
+            avg_voxel = np.mean(voxels)
+            if total_objects > 1:
+                # 构建统计文本
+                stats_text = f"✅ 检测到 {total_objects} 个目标 | "
+                stats_text += f"🎯 平均置信度: {avg_confidence:.3f} | "
+                stats_text += f"⌀ 平均直径: {avg_diameter:.2f}pixel | "
+                stats_text += f"🧩 平均像素面积: {avg_voxel:.2f}pixel²\n"
+                stats_text += "📊 类别统计: " + " | ".join([f"{name}: {count}" for name, count in class_counts.items()])
+            else:
+                # 构建统计文本
+                stats_text = f"✅ 检测到 {total_objects} 个目标 | "
+                stats_text += f"🎯 置信度: {avg_confidence:.3f} | "
+                stats_text += f"⌀ 直径: {avg_diameter:.2f}pixel | "
+                stats_text += f"🧩 像素面积: {avg_voxel:.2f}pixel²\n"
+                stats_text += "📊 类别: " + " | ".join([f"{name}: {count}" for name, count in class_counts.items()])
+
+        else:
+            stats_text = "❌ 未检测到目标"
 
         self.stats_label.setText(stats_text)
-
-
 class MonitoringWidget(QWidget):
     """监控页面组件"""
 
@@ -2680,127 +2762,131 @@ class EnhancedMonitoringWidget(QWidget):
             if detection_result in self.detection_stats:
                 self.detection_stats[detection_result] += 1
                 self.update_stats()
+
+
 class SliceDetailDialog(QDialog):
-        """切片详细信息弹窗"""
+    """切片详细信息弹窗"""
 
-        def __init__(self, nii_data, slice_index, direction, parent=None):
-            super().__init__(parent)
-            self.nii_data = nii_data
-            self.current_slice_index = slice_index
-            self.direction = direction
-            self.max_slices = nii_data.shape[direction]
+    def __init__(self, nii_data, slice_index, direction, parent=None):
+        super().__init__(parent)
+        self.nii_data = nii_data
+        self.current_slice_index = slice_index
+        self.direction = direction
+        self.max_slices = nii_data.shape[direction]
 
-            self.init_ui()
-            self.update_slice_display()
-            # 启用鼠标跟踪以捕获滚轮事件
-            self.setMouseTracking(True)
+        self.init_ui()
+        self.update_slice_display()
+        # 启用鼠标跟踪以捕获滚轮事件
+        self.setMouseTracking(True)
 
-        def init_ui(self):
-            self.setWindowTitle(f"切片详细信息 - Slice {self.current_slice_index}")
-            self.resize(600, 600)
+    def init_ui(self):
+        self.setWindowTitle(f"切片详细信息 - Slice {self.current_slice_index}")
+        self.resize(600, 600)
 
-            layout = QVBoxLayout(self)
+        layout = QVBoxLayout(self)
 
-            # 图像显示区域
-            self.image_label = QLabel()
-            self.image_label.setAlignment(Qt.AlignCenter)
-            self.image_label.setMinimumSize(400, 400)
-            # 启用图像标签的鼠标事件
-            self.image_label.setMouseTracking(True)
-            self.image_label.installEventFilter(self)  # 安装事件过滤器
-            layout.addWidget(self.image_label)
+        # 图像显示区域
+        self.image_label = QLabel()
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setMinimumSize(400, 400)
+        # 启用图像标签的鼠标事件
+        self.image_label.setMouseTracking(True)
+        self.image_label.installEventFilter(self)  # 安装事件过滤器
+        layout.addWidget(self.image_label)
 
-            # 控制按钮区域
-            button_layout = QHBoxLayout()
+        # 控制按钮区域
+        button_layout = QHBoxLayout()
 
-            self.prev_button = QPushButton("⬆️ 上一张")
-            self.prev_button.clicked.connect(self.show_previous_slice)
-            button_layout.addWidget(self.prev_button)
+        self.prev_button = QPushButton("⬆️ 上一张")
+        self.prev_button.clicked.connect(self.show_previous_slice)
+        button_layout.addWidget(self.prev_button)
 
-            self.slice_info_label = QLabel(f"Slice {self.current_slice_index}/{self.max_slices - 1}")
-            self.slice_info_label.setAlignment(Qt.AlignCenter)
-            button_layout.addWidget(self.slice_info_label)
+        self.slice_info_label = QLabel(f"Slice {self.current_slice_index}/{self.max_slices - 1}")
+        self.slice_info_label.setAlignment(Qt.AlignCenter)
+        button_layout.addWidget(self.slice_info_label)
 
-            self.next_button = QPushButton("⬇️ 下一张")
-            self.next_button.clicked.connect(self.show_next_slice)
-            button_layout.addWidget(self.next_button)
+        self.next_button = QPushButton("⬇️ 下一张")
+        self.next_button.clicked.connect(self.show_next_slice)
+        button_layout.addWidget(self.next_button)
 
-            layout.addLayout(button_layout)
+        layout.addLayout(button_layout)
 
-            # 关闭按钮
-            close_button = QPushButton("关闭")
-            close_button.clicked.connect(self.accept)
-            layout.addWidget(close_button)
+        # 关闭按钮
+        close_button = QPushButton("关闭")
+        close_button.clicked.connect(self.accept)
+        layout.addWidget(close_button)
+
+        # 更新按钮状态
+        self.update_button_states()
+
+    def eventFilter(self, obj, event):
+        """事件过滤器，用于处理鼠标滚轮事件"""
+        if obj == self.image_label and event.type() == QEvent.Wheel:
+            if event.angleDelta().y() > 0:  # 向上滚动
+                self.show_previous_slice()
+            else:  # 向下滚动
+                self.show_next_slice()
+            return True
+        return super().eventFilter(obj, event)
+
+    def update_slice_display(self):
+        """更新切片显示"""
+        try:
+            # 提取切片数据
+            if self.direction == 0:  # Sagittal
+                slice_data = self.nii_data[self.current_slice_index, :, :]
+            elif self.direction == 1:  # Coronal
+                slice_data = self.nii_data[:, self.current_slice_index, :]
+            else:  # Axial
+                slice_data = self.nii_data[:, :, self.current_slice_index]
+
+            # 确保数据是连续的
+            if not slice_data.flags['C_CONTIGUOUS']:
+                slice_data = np.ascontiguousarray(slice_data)
+
+            # 转换为 QImage 显示
+            # 归一化数据到 0-255 范围
+            slice_normalized = ((slice_data - slice_data.min()) /
+                                (slice_data.max() - slice_data.min()) * 255).astype(np.uint8)
+
+            height, width = slice_normalized.shape
+            bytes_per_line = width
+            q_img = QImage(slice_normalized.data, width, height, bytes_per_line, QImage.Format_Grayscale8)
+
+            # 缩放图像以适应显示区域
+            pixmap = QPixmap.fromImage(q_img)
+            scaled_pixmap = pixmap.scaled(
+                self.image_label.size(),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation
+            )
+            self.image_label.setPixmap(scaled_pixmap)
+
+            # 更新切片信息
+            self.slice_info_label.setText(f"Slice {self.current_slice_index}/{self.max_slices - 1}")
 
             # 更新按钮状态
             self.update_button_states()
-        def eventFilter(self, obj, event):
-            """事件过滤器，用于处理鼠标滚轮事件"""
-            if obj == self.image_label and event.type() == QEvent.Wheel:
-                if event.angleDelta().y() > 0:  # 向上滚动
-                    self.show_previous_slice()
-                else:  # 向下滚动
-                    self.show_next_slice()
-                return True
-            return super().eventFilter(obj, event)
-        def update_slice_display(self):
-            """更新切片显示"""
-            try:
-                # 提取切片数据
-                if self.direction == 0:  # Sagittal
-                    slice_data = self.nii_data[self.current_slice_index, :, :]
-                elif self.direction == 1:  # Coronal
-                    slice_data = self.nii_data[:, self.current_slice_index, :]
-                else:  # Axial
-                    slice_data = self.nii_data[:, :, self.current_slice_index]
 
-                # 确保数据是连续的
-                if not slice_data.flags['C_CONTIGUOUS']:
-                    slice_data = np.ascontiguousarray(slice_data)
+        except Exception as e:
+            self.image_label.setText(f"显示错误: {str(e)}")
 
-                # 转换为 QImage 显示
-                # 归一化数据到 0-255 范围
-                slice_normalized = ((slice_data - slice_data.min()) /
-                                    (slice_data.max() - slice_data.min()) * 255).astype(np.uint8)
+    def update_button_states(self):
+        """更新按钮状态"""
+        self.prev_button.setEnabled(bool(self.current_slice_index > 0))
+        self.next_button.setEnabled(bool(self.current_slice_index < self.max_slices - 1))
 
-                height, width = slice_normalized.shape
-                bytes_per_line = width
-                q_img = QImage(slice_normalized.data, width, height, bytes_per_line, QImage.Format_Grayscale8)
+    def show_previous_slice(self):
+        """显示上一张切片"""
+        if self.current_slice_index > 0:
+            self.current_slice_index -= 1
+            self.update_slice_display()
 
-                # 缩放图像以适应显示区域
-                pixmap = QPixmap.fromImage(q_img)
-                scaled_pixmap = pixmap.scaled(
-                    self.image_label.size(),
-                    Qt.KeepAspectRatio,
-                    Qt.SmoothTransformation
-                )
-                self.image_label.setPixmap(scaled_pixmap)
-
-                # 更新切片信息
-                self.slice_info_label.setText(f"Slice {self.current_slice_index}/{self.max_slices - 1}")
-
-                # 更新按钮状态
-                self.update_button_states()
-
-            except Exception as e:
-                self.image_label.setText(f"显示错误: {str(e)}")
-
-        def update_button_states(self):
-            """更新按钮状态"""
-            self.prev_button.setEnabled(bool(self.current_slice_index > 0))
-            self.next_button.setEnabled(bool(self.current_slice_index < self.max_slices - 1))
-
-        def show_previous_slice(self):
-            """显示上一张切片"""
-            if self.current_slice_index > 0:
-                self.current_slice_index -= 1
-                self.update_slice_display()
-
-        def show_next_slice(self):
-            """显示下一张切片"""
-            if self.current_slice_index < self.max_slices - 1:
-                self.current_slice_index += 1
-                self.update_slice_display()
+    def show_next_slice(self):
+        """显示下一张切片"""
+        if self.current_slice_index < self.max_slices - 1:
+            self.current_slice_index += 1
+            self.update_slice_display()
 
 
 class SnapshotWidget(QWidget):
@@ -3689,10 +3775,6 @@ class EnhancedDetectionUI(QMainWindow):
 
         layout.addWidget(control_group)
 
-        # 检测结果详情
-        # self.result_detail_widget = DetectionResultWidget()
-        # layout.addWidget(self.result_detail_widget)
-
         # 日志区域
         log_group = QGroupBox("📋 运行日志")
         log_layout = QVBoxLayout(log_group)
@@ -3723,10 +3805,8 @@ class EnhancedDetectionUI(QMainWindow):
         # 创建标签页
         self.tab_widget = QTabWidget()
 
-
-
         # 实时检测标签页
-        realtime_tab = self.create_realtime_tab()
+        realtime_tab = self.create_realtime_tab
         self.tab_widget.addTab(realtime_tab, "🎯 实时检测")
 
         # 批量结果标签页
@@ -3793,8 +3873,8 @@ class EnhancedDetectionUI(QMainWindow):
         direction_layout = QHBoxLayout()
         direction_layout.addWidget(QLabel("🧭 切片方向:"))
         self.slice_direction_combo = QComboBox()
-        self.slice_direction_combo.addItems(["冠状位 (Coronal)","水平位 (Axial)", "矢状位 (Sagittal)"])
-        self.slice_direction_combo.setCurrentText("水平位 (Axial)")
+        self.slice_direction_combo.addItems(["矢状位 (Sagittal)", "冠状位 (Coronal)", "水平位 (Axial)"])
+        self.slice_direction_combo.setCurrentText("冠状位 (Coronal)")
         self.slice_direction_combo.currentTextChanged.connect(self.update_slice_info)
         direction_layout.addWidget(self.slice_direction_combo)
         direction_layout.addStretch()
@@ -3891,6 +3971,7 @@ class EnhancedDetectionUI(QMainWindow):
 
         # 重启定时器，延迟更新预览图
         self.slice_update_timer.start(100)  # 300毫秒延迟，避免频繁更新
+
     def browse_nii_file(self):
         """浏览NIfTI文件或目录"""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -4086,6 +4167,7 @@ class EnhancedDetectionUI(QMainWindow):
         # 重新生成预览图
         if hasattr(self, 'current_nii_file') and self.current_nii_file:
             self.generate_preview()
+
     def convert_nifti(self):
         """执行NIfTI转换"""
         if not self.current_nii_file:
@@ -4149,6 +4231,7 @@ class EnhancedDetectionUI(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "错误", f"转换失败: {str(e)}")
 
+    @property
     def create_realtime_tab(self):
         """创建实时检测标签页"""
         widget = QWidget()
@@ -4189,8 +4272,265 @@ class EnhancedDetectionUI(QMainWindow):
         # 检测结果详情
         self.result_detail_widget = DetectionResultWidget()
         layout_top.addWidget(self.result_detail_widget)
-        layout_top.addStretch()
+
+        # 创建一个水平布局来放置导出报告按钮，紧贴在DetectionResultWidget下方
+        button_container = QWidget()
+        button_container.setMaximumHeight(40)  # 限制按钮容器的高度
+        button_layout = QHBoxLayout(button_container)
+        button_layout.setContentsMargins(0, 0, 0, 0)  # 减少上下边距
+        button_layout.addStretch()  # 添加弹性空间推向右侧
+        self.export_report_btn = QPushButton("📤 导出报告")
+        self.export_report_btn.setMaximumWidth(120)
+        self.export_report_btn.clicked.connect(self.export_report)
+        button_layout.addWidget(self.export_report_btn)
+        layout_top.addWidget(button_container)
         return widget
+
+    def export_report(self):
+        """导出标准化MRI检查报告PDF"""
+        if not hasattr(self, 'result_label') or not hasattr(self, 'result_detail_widget'):
+            QMessageBox.warning(self, "警告", "缺少必要的检测结果组件")
+            return
+
+        # 选择保存路径 - 自动生成MRI诊断报告文件名
+        now = datetime.now()
+        formatted_time = now.strftime("%Y%m%d_%H%M%S")
+        default_filename = f"MRI诊断报告_{formatted_time}.pdf"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "保存报告", default_filename, "PDF Files (*.pdf);;All Files (*)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            from reportlab.lib.pagesizes import letter, A4
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.units import inch
+            from reportlab.lib import colors
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont
+
+            # 注册字体
+            font_path = "C:\Windows\Fonts\msyh.ttc"  # 字体文件路径
+            if os.path.exists(font_path):
+                pdfmetrics.registerFont(TTFont('CustomFont', font_path))
+                font_name = 'CustomFont'
+            else:
+                font_name = 'simhei'  # 备选字体
+
+            # 创建文档
+            doc = SimpleDocTemplate(file_path, pagesize=A4)
+            story = []
+
+            # 样式定义
+            styles = getSampleStyleSheet()
+
+            # 自定义标题样式
+            title_style = ParagraphStyle(
+                'CustomTitle',
+                parent=styles['Heading1'],
+                fontSize=18,
+                spaceAfter=30,
+                alignment=1,  # 居中
+                fontName=font_name
+            )
+            # 自定义标题样式
+            big_style = ParagraphStyle(
+                'CustomNormal',
+                parent=styles['Heading4'],
+                fontSize=12,
+                spaceAfter=10,
+                fontName=font_name
+            )
+
+            # 自定义段落样式
+            normal_style = ParagraphStyle(
+                'CustomNormal',
+                parent=styles['Normal'],
+                fontSize=8,
+                spaceAfter=8,
+                leading=12,
+                fontName=font_name
+            )
+
+            # 报告标题
+            title = Paragraph("MRI检查报告", title_style)
+            story.append(title)
+            story.append(Spacer(1, 20))
+
+            # 基本信息表格
+            info_data = [
+                ["患者姓名:", "", "性别:", "", "年龄:", ""],
+                ["检查日期:", datetime.now().strftime("%Y-%m-%d"), "编号:", "", "科室:", ""],
+                ["检查部位:", "脑部", "序列:", "T1/T2", "型号:", "MRI Scanner"]
+            ]
+
+            info_table = Table(info_data, colWidths=[60, 100, 40, 80, 40, 80])
+            info_table.setStyle(TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, -1), font_name),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('SPAN', (1, 0), (1, 0)),  # 合并单元格
+                ('SPAN', (3, 0), (3, 0)),
+                ('SPAN', (5, 0), (5, 0)),
+            ]))
+
+            story.append(info_table)
+            story.append(Spacer(1, 10))
+
+            # 检测结果图
+            if hasattr(self, 'result_label') and self.result_label.pixmap():
+                # 保存当前显示的图像
+                temp_img_path = "temp_result.png"
+                self.result_label.pixmap().save(temp_img_path)
+
+                img = Image(temp_img_path, width=2 * inch, height=2 * inch)
+                story.append(Paragraph("检测结果图:", big_style))
+                story.append(img)
+                story.append(Spacer(1, 10))
+
+            # MRI扫描所见
+            story.append(Paragraph("扫描所见:",big_style))
+
+            # 获取检测结果详细信息
+            findings_text = "未发现明显异常"  # 默认值
+
+            # 从result_detail_widget获取检测信息
+            if hasattr(self, 'result_detail_widget'):
+                # 假设result_detail_widget是DetectionResultWidget
+                if hasattr(self.result_detail_widget, 'result_table'):
+                    table = self.result_detail_widget.result_table
+                    if table.rowCount() > 0:
+                        findings_parts = []
+                        for row in range(table.rowCount()):
+                            # 读取病变类型，读不到就显示“未知”
+                            class_name = table.item(row, 0).text() if table.item(row, 0) else "未知"
+                            # 读取置信度并替换为“可能性”表述，读不到就显示“未知”
+                            confidence = table.item(row, 1).text() if table.item(row, 1) else "未知"
+                            # 读取尺寸信息，读不到就显示“未知”
+                            size = table.item(row, 3).text() if table.item(row, 3) else "未知"
+
+                            # 初始化直径和体素大小的默认值
+                            diameter = "未知"
+                            voxel_size = "未知"
+
+                            # 仅当尺寸信息有效时，计算直径和体素大小（兼容常见的尺寸格式，比如“2cm×3cm”“20,30”等）
+                            if size != "未知":
+                                try:
+                                    # 处理常见的尺寸格式（比如“2×3”“20,30”“20 30”），提取数字
+                                    # 先替换特殊符号为分隔符，再拆分出宽度和高度
+                                    size_clean = size.replace("cm", "").replace("mm", "").replace("×", ",").replace(" ",
+                                                                                                                    ",")
+                                    width, height = [float(num.strip()) for num in size_clean.split(",") if num.strip()]
+                                    diameter = (width+height)/2  # 直径取宽度和高度的最大值
+                                    voxel_size = 0.785*width * height  # 体素大小为宽度乘以高度
+                                except:
+                                    # 如果尺寸格式解析失败，保持默认的“未知”
+                                    pass
+
+                            # 拼接最终文本：去除位置/尺寸，置信度改可能性，只保留类型、可能性、直径、体素 f"{voxel_value:.2f}"
+                            findings_parts.append(
+                                f"{class_name} 可能性: {confidence}, 最大直径约: {diameter}pixel, 像素面积估算值: {voxel_size:.2f}pixel²"
+                            )
+                        findings_text = "；".join(findings_parts)
+
+            findings_para = Paragraph(findings_text, normal_style)
+            story.append(findings_para)
+            story.append(Spacer(1, 10))
+
+            # 诊断结论
+            story.append(Paragraph("诊断结论:",big_style))
+            conclusion_text = "根据影像学表现，考虑为脑部肿瘤病变，建议进一步检查确认。"  # 示例文本
+            conclusion_para = Paragraph(conclusion_text, normal_style)
+            story.append(conclusion_para)
+            story.append(Spacer(1, 10))
+
+            # 诊断建议
+            story.append(Paragraph("诊断建议:",big_style))
+            recommendation_text = "1. 建议进行增强扫描以进一步明确病灶性质<br/>" \
+                                  "2. 结合临床症状及实验室检查结果综合判断<br/>" \
+                                  "3. 定期复查，观察病灶变化情况"
+            recommendation_para = Paragraph(recommendation_text, normal_style)
+            story.append(recommendation_para)
+            story.append(Spacer(1, 10))
+
+            # 注意事项
+            story.append(Paragraph("注意事项:",big_style))
+            notes_text = "1. 请结合临床症状进行综合分析<br/>" \
+                         "2. 如有不适，请及时就医<br/>" \
+                         "3. 建议定期复查以监测病情变化"
+            notes_para = Paragraph(notes_text, normal_style)
+            story.append(notes_para)
+            story.append(Spacer(1, 10))
+
+            # 签名区域
+            signature_data = [
+                ["报告医师:", "_______________", "审核医师:", "_______________"],
+                ["报告时间:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "", ""],
+                ["医院名称:", "XXX医院影像科", "", ""]
+            ]
+
+            signature_table = Table(signature_data, colWidths=[80, 150, 80, 150])
+            signature_table.setStyle(TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, -1), font_name),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ]))
+
+            story.append(signature_table)
+            disclaimer_paragraph = Paragraph(
+                '<para align=center spaceafter=8>This software is a prototype version and is not designed or intended for use in diagnosis or classification of any medical problems or other medical purposes. The user acknowledges and warrants that the software will not be used for such purposes. This prototype is for medical research purposes only. The software is provided "as is" without any warranty of any kind.</para>',
+                styles['Normal']
+            )
+            disclaimer_paragraph.style.fontSize = 5  # 设置较小的字体
+            disclaimer_paragraph.style.leading = 15  # 行间距
+            story.append(disclaimer_paragraph)
+            # 构建PDF
+            doc.build(story)
+
+            # 清理临时文件
+            if os.path.exists(temp_img_path):
+                os.remove(temp_img_path)
+
+            # 替换原有的这行代码：
+            # QMessageBox.information(self, "成功", f"报告已成功导出至: {file_path}")
+
+            # 修改为以下代码：
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("成功")
+            msg_box.setText(f"报告已成功导出至: {file_path}")
+            msg_box.setIcon(QMessageBox.Information)
+
+            # 添加"打开文件"按钮
+            open_button = msg_box.addButton("打开文件", QMessageBox.ActionRole)
+            msg_box.addButton(QMessageBox.Ok)
+
+            msg_box.exec_()
+
+            # 如果用户点击了"打开文件"按钮，则执行打开操作
+            if msg_box.clickedButton() == open_button:
+                import subprocess
+                import platform
+
+                try:
+                    if platform.system() == "Windows":
+                        os.startfile(file_path)
+                    elif platform.system() == "Darwin":  # macOS
+                        subprocess.run(["open", file_path])
+                    else:  # Linux
+                        subprocess.run(["xdg-open", file_path])
+                except Exception as e:
+                    QMessageBox.warning(self, "错误", f"无法打开文件: {str(e)}")
+
+
+        except ImportError:
+            QMessageBox.critical(self, "错误", "请安装reportlab库: pip install reportlab")
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"导出报告时发生错误: {str(e)}")
 
     def create_batch_tab(self):
         """创建批量结果标签页"""
@@ -4636,6 +4976,25 @@ class EnhancedDetectionUI(QMainWindow):
         # 计算目标数量
         object_count = len(results[0].boxes) if results and results[0].boxes else 0
 
+        # 计算直径和体素信息
+        diameters = []
+        voxels = []
+        if results and results[0].boxes:
+            boxes = results[0].boxes.xyxy.cpu().numpy()
+            for box in boxes:
+                # 计算宽度和高度
+                width = box[2] - box[0]
+                height = box[3] - box[1]
+
+                # 计算直径 (假设是圆形肿瘤，直径等于平均尺寸)
+                diameter = (width + height) / 2  # 像素为单位
+                diameters.append(diameter)
+
+                # 计算体素 (简化为0.785 * w * h * 体素单位，默认体素单位为1mm)
+                voxel_size = 1.0  # 默认体素单位为1mm
+                voxel_value = 0.785 * width * height * voxel_size
+                voxels.append(voxel_value)
+
         # 保存结果
         result_data = {
             'file_path': file_path,
@@ -4644,7 +5003,9 @@ class EnhancedDetectionUI(QMainWindow):
             'inference_time': inference_time,
             'results': results,
             'class_names': class_names,
-            'object_count': object_count
+            'object_count': object_count,
+            'diameters': diameters,
+            'voxels': voxels
         }
 
         self.batch_results.append(result_data)
@@ -4714,7 +5075,41 @@ class EnhancedDetectionUI(QMainWindow):
 
                 info_text += "📊 类别统计: " + ", ".join(
                     [f"{name}:{count}" for name, count in class_counts.items()]) + ""
-                info_text += f"🎯 平均置信度: {np.mean(confidences):.3f}"
+
+                # 根据检测目标数量决定显示方式
+                if len(result['results'][0].boxes) == 1:
+                    # 单个目标：显示具体置信度
+                    info_text += f"🎯 置信度: {confidences[0]:.3f}"
+                else:
+                    # 多个目标：显示平均置信度和置信度范围
+                    info_text += f"🎯 平均置信度: {np.mean(confidences):.3f}"
+                    info_text += f"\n📈 置信度范围: {np.min(confidences):.3f} - {np.max(confidences):.3f}"
+
+                # 添加直径和体素信息
+                if 'diameters' in result and 'voxels' in result:
+                    if len(result['results'][0].boxes) == 1:
+                        # 单个目标：显示具体直径(mm)和体素(mm²)
+                        diameter = result['diameters'][0] if result['diameters'] else 0
+                        voxel = result['voxels'][0] if result['voxels'] else 0
+
+                        # 假设像素与毫米的转换比例为1:1 (实际应用中可能需要校准)
+                        diameter_mm = diameter  # 这里简化处理，实际应用需要根据相机标定或已知参考物进行转换
+
+                        info_text += f"\n📏 估算直径: {diameter_mm:.2f} pixel"
+                        info_text += f"\n🧩 像素面积估算值: {voxel:.2f} pixel²"
+                    else:
+                        # 多个目标：显示平均直径和体素，以及每个目标的信息
+                        avg_diameter = np.mean(result['diameters']) if result['diameters'] else 0
+                        avg_voxel = np.mean(result['voxels']) if result['voxels'] else 0
+
+                        # 假设像素与毫米的转换比例为1:1
+                        avg_diameter_mm = avg_diameter
+
+                        info_text += f"\n📏 平均直径: {avg_diameter_mm:.2f} pixel"
+                        info_text += f"\n🧩 平均像素: {avg_voxel:.2f} pixel²"
+
+                        info_text += "\n📏 各目标直径(pixel): " + ", ".join([f"{d:.2f}" for d in result['diameters']])
+                        info_text += "\n🧩 各像素(pixel²): " + ", ".join([f"{v:.2f}" for v in result['voxels']])
 
             self.batch_info_label.setText(info_text)
             self.result_index_label.setText(f"{index + 1}/{len(self.batch_results)}")
@@ -4806,7 +5201,13 @@ class EnhancedDetectionUI(QMainWindow):
                     confidences = result['results'][0].boxes.conf.cpu().numpy()
                     classes = result['results'][0].boxes.cls.cpu().numpy().astype(int)
 
-                    f.write(f"   📈 置信度范围: {np.min(confidences):.3f} - {np.max(confidences):.3f}\n")
+                    # 根据检测目标数量决定显示方式
+                    if len(result['results'][0].boxes) == 1:
+
+                        f.write(f"   📈 置信度: {confidences[0]:.3f}\n")
+                    else:
+                        # 多个目标：显示置信度范围
+                        f.write(f"   📈 置信度范围: {np.min(confidences):.3f} - {np.max(confidences):.3f}\n")
 
                     # 类别统计
                     class_counts = {}
@@ -4816,6 +5217,38 @@ class EnhancedDetectionUI(QMainWindow):
 
                     f.write("   📊 类别分布: " + ", ".join(
                         [f"{name}:{count}" for name, count in class_counts.items()]) + "\n")
+
+                    # 添加直径和体素信息
+                    if 'diameters' in result and 'voxels' in result:
+                        if len(result['results'][0].boxes) == 1:
+
+                            diameter = result['diameters'][0] if result['diameters'] else 0
+                            voxel = result['voxels'][0] if result['voxels'] else 0
+
+                            # 假设像素与毫米的转换比例为1:1 (实际应用中可能需要校准)
+                            diameter_mm = diameter  # 这里简化处理，实际应用需要根据相机标定或已知参考物进行转换
+
+                            f.write(f"   📏 直径: {diameter_mm:.2f} pixel\n")
+                            f.write(f"   🧩 像素: {voxel:.2f} pixel²\n")
+                        else:
+
+                            f.write("   📏 各目标直径(pixel): ")
+                            for i, diameter in enumerate(result['diameters']):
+                                # 假设像素与毫米的转换比例为1:1
+                                diameter_mm = diameter
+                                if i == len(result['diameters']) - 1:
+                                    f.write(f"{diameter_mm:.2f}")
+                                else:
+                                    f.write(f"{diameter_mm:.2f}, ")
+                            f.write("\n")
+
+                            f.write("   🧩 各像素(pixel²): ")
+                            for i, voxel in enumerate(result['voxels']):
+                                if i == len(result['voxels']) - 1:
+                                    f.write(f"{voxel:.2f}")
+                                else:
+                                    f.write(f"{voxel:.2f}, ")
+                            f.write("\n")
 
                 f.write("\n")
 
